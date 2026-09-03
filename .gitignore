@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.save
+.env
+.env.*
+!.env.example
+/tmp/
+
+*.swp
+*.swo

@@ -1,0 +1,17 @@
+name = "private-browser-gateway"
+main = "src/index.ts"
+compatibility_date = "2024-01-02"
+
+[env.production]
+name = "private-browser-gateway"
+route = "https://private-browser-gateway.private-browser.workers.dev/*"
+
+[env.development]
+name = "private-browser-gateway-dev"
+
+[[env.development.routes]]
+pattern = "http://localhost:8787/*"
+
+[build]
+command = "npm run build"
+cwd = "."

@@ -1,0 +1,92 @@
+.address-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  height: 52px;
+}
+
+.browser-controls {
+  display: flex;
+  gap: 2px;
+}
+
+.control-btn {
+  background-color: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+}
+
+.control-btn:hover:not(:disabled) {
+  background-color: #e8e8e8;
+}
+
+.control-btn:active:not(:disabled) {
+  background-color: #d8d8d8;
+}
+
+.control-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.control-btn.loading {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.url-form {
+  flex: 1;
+  display: flex;
+}
+
+.url-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  font-family: 'Courier New', monospace;
+}
+
+.url-input:focus {
+  outline: none;
+  border-color: #0066cc;
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 600px) {
+  .address-bar {
+    gap: 6px;
+    padding: 6px 8px;
+    height: 48px;
+  }
+
+  .control-btn {
+    padding: 4px 8px;
+    min-width: 32px;
+    height: 32px;
+    font-size: 0.8rem;
+  }
+
+  .url-input {
+    padding: 6px 10px;
+    font-size: 0.9rem;
+  }
+}
