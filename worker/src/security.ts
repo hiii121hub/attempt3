@@ -1,0 +1,166 @@
+/**
+ * SSRF Protection Utilities
+ * 
+ * Validates URLs to prevent Server-Side Request Forgery attacks.
+ * Blocks private IP ranges, metadata endpoints, and internal services.
+ */
+
+export class SSRFError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SSRFError'
+  }
+}
+
+/**
+ * Private IPv4 ranges (RFC 1918 + other reserved ranges)
+ */
+const PRIVATE_IPV4_RANGES = [
+  { start: '0.0.0.0', end: '0.255.255.255' },           // This network
+  { start: '10.0.0.0', end: '10.255.255.255' },         // Private
+  { start: '127.0.0.0', end: '127.255.255.255' },       // Loopback
+  { start: '169.254.0.0', end: '169.254.255.255' },     // Link-local
+  { start: '172.16.0.0', end: '172.31.255.255' },       // Private
+  { start: '192.0.0.0', end: '192.0.2.255' },           // TEST-NET-1
+  { start: '192.0.2.0', end: '192.0.2.255' },           // Documentation
+  { start: '192.168.0.0', end: '192.168.255.255' },     // Private
+  { start: '198.18.0.0', end: '198.19.255.255' },       // Network testing
+  { start: '198.51.100.0', end: '198.51.100.255' },     // TEST-NET-2
+  { start: '203.0.113.0', end: '203.0.113.255' },       // TEST-NET-3
+  { start: '224.0.0.0', end: '255.255.255.255' },       // Multicast/Reserved
+]
+
+/**
+ * Blocked hostnames that are known to be internal or dangerous
+ */
+const BLOCKED_HOSTNAMES = [
+  'localhost',
+  '::1',
+  '::',
+  'metadata.google.internal',
+  '169.254.169.254',  // AWS, GCP metadata
+  '169.254.169.255',
+  '169.254.170.2',    // Azure metadata
+  'lxd-nameserver',
+  'lxd-gateway',
+  '.local',
+  '.localhost',
+  'docker',
+  '.docker.internal',
+]
+
+/**
+ * Convert IPv4 string to number for range comparison
+ */
+function ipv4ToNumber(ip: string): number {
+  const parts = ip.split('.')
+  if (parts.length !== 4) return -1
+  const nums = parts.map(p => parseInt(p, 10))
+  if (nums.some(n => isNaN(n) || n < 0 || n > 255)) return -1
+  return (nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]
+}
+
+/**
+ * Check if IPv4 is in private range
+ */
+function isPrivateIPv4(ip: string): boolean {
+  const num = ipv4ToNumber(ip)
+  if (num === -1) return false
+
+  for (const range of PRIVATE_IPV4_RANGES) {
+    const start = ipv4ToNumber(range.start)
+    const end = ipv4ToNumber(range.end)
+    if (num >= start && num <= end) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Check if IPv6 is private/local
+ */
+function isPrivateIPv6(ip: string): boolean {
+  // Loopback
+  if (ip === '::1') return true
+  // Link-local
+  if (ip.startsWith('fe80:')) return true
+  // Unique local
+  if (ip.startsWith('fc00:') || ip.startsWith('fd00:')) return true
+  // Multicast
+  if (ip.startsWith('ff00:')) return true
+  // Unspecified
+  if (ip === '::') return true
+  return false
+}
+
+/**
+ * Validate a destination URL is safe to fetch
+ */
+export async function validateSSRF(urlString: string): Promise<void> {
+  try {
+    const url = new URL(urlString)
+
+    // Block dangerous protocols
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      throw new SSRFError(`Blocked protocol: ${url.protocol}`)
+    }
+
+    const hostname = url.hostname.toLowerCase()
+
+    // Check blocked hostnames
+    for (const blocked of BLOCKED_HOSTNAMES) {
+      if (blocked.startsWith('.')) {
+        // Domain suffix match
+        if (hostname.endsWith(blocked) || hostname === blocked.slice(1)) {
+          throw new SSRFError(`Blocked hostname: ${hostname}`)
+        }
+      } else {
+        // Exact match
+        if (hostname === blocked) {
+          throw new SSRFError(`Blocked hostname: ${hostname}`)
+        }
+      }
+    }
+
+    // Resolve hostname to IP and check
+    try {
+      // Note: In Cloudflare Workers, we use fetch to attempt to validate.
+      // A true DNS resolution isn't available, but we can check common patterns.
+      
+      // IPv4 checks
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+        if (isPrivateIPv4(hostname)) {
+          throw new SSRFError(`Blocked private IPv4: ${hostname}`)
+        }
+      }
+
+      // IPv6 checks
+      if (hostname.includes(':')) {
+        if (isPrivateIPv6(hostname)) {
+          throw new SSRFError(`Blocked private IPv6: ${hostname}`)
+        }
+      }
+    } catch (e) {
+      if (e instanceof SSRFError) throw e
+      // Other errors don't block, just log
+      console.log('Could not validate IP:', e)
+    }
+  } catch (e) {
+    if (e instanceof SSRFError) throw e
+    throw new SSRFError(`Invalid URL: ${String(e)}`)
+  }
+}
+
+/**
+ * Validate a redirect target is safe
+ */
+export async function validateRedirectTarget(
+  targetUrl: string
+): Promise<void> {
+  // Absolute URLs must pass SSRF check
+  if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
+    await validateSSRF(targetUrl)
+  }
+  // Relative URLs are safe by definition (relative to valid source)
+}
