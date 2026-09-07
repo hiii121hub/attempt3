@@ -14,14 +14,6 @@ PROFILE=/tmp/chromium-remote-profile
 LOG_DIR=/tmp/remote-browser
 mkdir -p "$LOG_DIR"
 
-# Keep Chrome's shared memory at 500 MB for stable video/graphics performance.
-SHM_SIZE_MB=$(df -m /dev/shm | awk 'NR==2 {print $2}')
-if [[ "${SHM_SIZE_MB:-0}" -lt 500 ]]; then
-    echo -e "${YELLOW}Setting /dev/shm to 500MB${NC}"
-    mount -o remount,size=500M /dev/shm 2>/dev/null || true
-fi
-
-
 AVAILABLE_RAM=$(free -m | awk 'NR==2 { print $7 }')
 CPU_COUNT=$(nproc)
 echo "Available RAM: ${AVAILABLE_RAM} MB; CPUs: ${CPU_COUNT}"
@@ -91,6 +83,8 @@ start_chromium() {
     echo -e "${GREEN}Starting Chromium${NC}"
     mkdir -p "$PROFILE"
     "$CHROMIUM_BIN" \
+        --disable-gpu \
+        --no-sandbox \
         --user-data-dir="$PROFILE" \
         --no-first-run \
         --no-default-browser-check \
