@@ -4,5 +4,8 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1": {}
   },
-  "remoteUser": "vscode"
+  "remoteUser": "vscode",
+  "runArgs": [
+    "--shm-size=500m"
+  ]
 }
