@@ -31,7 +31,7 @@ describe('Proxy URL Encoding', () => {
     const encoded = encodeProxyPath('https://example.com')
     expect(encoded).toMatch(/^\/p\/[A-Za-z0-9_-]+$/)
     expect(encoded).not.toMatch(/\+/)
-    expect(encoded).not.toMatch(/\//)
+    expect(encoded.slice(3)).not.toMatch(/\//)
     expect(encoded).not.toMatch(/=/)
   })
 

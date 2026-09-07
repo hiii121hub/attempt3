@@ -36,6 +36,74 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
 
   const [status, setStatus] = useState('Loading noVNC...')
   const [connected, setConnected] = useState(false)
+    const [remoteSize, setRemoteSize] = useState(100)
+  const [isTouchDevice, setIsTouchDevice] = useState(false)
+  const scrollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    const checkTouchDevice = () => {
+      setIsTouchDevice(
+        window.matchMedia('(pointer: coarse)').matches ||
+        navigator.maxTouchPoints > 0
+      )
+    }
+
+    checkTouchDevice()
+    window.addEventListener('resize', checkTouchDevice)
+
+    return () => {
+      window.removeEventListener('resize', checkTouchDevice)
+
+      if (scrollTimerRef.current !== null) {
+        clearInterval(scrollTimerRef.current)
+        scrollTimerRef.current = null
+      }
+    }
+  }, [])
+
+  const sendWheelStep = (direction: 'up' | 'down') => {
+    const target = targetRef.current
+
+    if (!target || !connected) return
+
+    const canvas = target.querySelector('canvas') as HTMLCanvasElement | null
+
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+
+    const clientX = rect.left + rect.width / 2
+    const clientY = rect.top + rect.height / 2
+
+    canvas.dispatchEvent(
+      new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY,
+        deltaX: 0,
+        deltaY: direction === 'down' ? 50 : -50,
+        deltaMode: 0,
+      })
+    )
+  }
+
+  const startScrolling = (direction: 'up' | 'down') => {
+    if (scrollTimerRef.current !== null) return
+
+    sendWheelStep(direction)
+
+    scrollTimerRef.current = setInterval(() => {
+      sendWheelStep(direction)
+    }, 90)
+  }
+
+  const stopScrolling = () => {
+    if (scrollTimerRef.current !== null) {
+      clearInterval(scrollTimerRef.current)
+      scrollTimerRef.current = null
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -98,7 +166,7 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
         }
       )
 
-      rfb.scaleViewport = true
+      rfb.scaleViewport = false
       rfb.resizeSession = false
       rfb.clipViewport = false
       rfb.viewOnly = false
@@ -307,7 +375,40 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
   }
 
     return (
-    <div
+      <>
+      <div
+        style={{
+          position: 'absolute',
+          top: 12,
+          right: 12,
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          borderRadius: 12,
+          background: 'rgba(20,20,20,.85)',
+          backdropFilter: 'blur(10px)',
+          color: '#fff',
+          fontSize: 13,
+        }}
+      >
+        <span>Remote Chrome Size</span>
+        <input
+          type="range"
+          min="60"
+          max="140"
+          step="5"
+          value={remoteSize}
+          onChange={(e) => setRemoteSize(Number(e.target.value))}
+          style={{ width: 120 }}
+        />
+        <span style={{ minWidth: 38, textAlign: 'right' }}>
+          {remoteSize}%
+        </span>
+      </div>
+
+      <div
       className="vnc-container"
       style={{
         position: 'relative',
@@ -323,8 +424,96 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
       >
         Status: {status}
       </div>
+        {isTouchDevice && (
+          <div
+            style={{
+              position: 'absolute',
+              right: 14,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              zIndex: 1100,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+              padding: 4,
+              borderRadius: 14,
+              background: 'rgba(20,20,20,.82)',
+              backdropFilter: 'blur(10px)',
+              boxShadow: '0 4px 18px rgba(0,0,0,.35)',
+              touchAction: 'none',
+              userSelect: 'none',
+            }}
+          >
+            <button
+              type="button"
+              aria-label="Scroll remote browser up"
+              onPointerDown={(event) => {
+                event.preventDefault()
+                startScrolling('up')
+              }}
+              onPointerUp={stopScrolling}
+              onPointerCancel={stopScrolling}
+              onPointerLeave={stopScrolling}
+              style={{
+                width: 48,
+                height: 48,
+                border: 0,
+                borderRadius: 10,
+                background: 'rgba(255,255,255,.12)',
+                color: '#fff',
+                fontSize: 24,
+                fontWeight: 600,
+                touchAction: 'none',
+              }}
+            >
+              ↑
+            </button>
+
+            <button
+              type="button"
+              aria-label="Scroll remote browser down"
+              onPointerDown={(event) => {
+                event.preventDefault()
+                startScrolling('down')
+              }}
+              onPointerUp={stopScrolling}
+              onPointerCancel={stopScrolling}
+              onPointerLeave={stopScrolling}
+              style={{
+                width: 48,
+                height: 48,
+                border: 0,
+                borderRadius: 10,
+                background: 'rgba(255,255,255,.12)',
+                color: '#fff',
+                fontSize: 24,
+                fontWeight: 600,
+                touchAction: 'none',
+              }}
+            >
+              ↓
+            </button>
+          </div>
+        )}
 
       <div
+        style={{
+          width: '100%',
+          height: '100%',
+          overflow: 'auto',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'flex-start',
+        }}
+      >
+        <div
+          style={{
+            transform: `scale(${remoteSize / 100})`,
+            transformOrigin: 'top center',
+            transition: 'transform 120ms ease-out',
+          }}
+        >
+<div
         ref={targetRef}
         className="vnc-target"
         onTouchStart={focusMobileKeyboard}
@@ -363,6 +552,9 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
         }}
       />
     </div>
+        </div>
+      </div>
+      </>
     )
   }
 )

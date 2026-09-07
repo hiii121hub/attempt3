@@ -1,6 +1,7 @@
 import React, { FormEvent, useEffect, useState } from 'react'
 import VNCViewer from './components/VNCViewer'
 import './App.css'
+import { startPoxeyHeartbeat, stopPoxeyHeartbeat } from './sessionHeartbeat'
 
 interface Branding {
   title: string
@@ -116,6 +117,18 @@ const AdminPage: React.FC = () => {
 const BrowserPage: React.FC = () => {
   const [launched, setLaunched] = useState(false)
   const [branding, setBranding] = useState(DEFAULT_BRANDING)
+
+  useEffect(() => {
+    if (launched) {
+      startPoxeyHeartbeat()
+    } else {
+      stopPoxeyHeartbeat()
+    }
+
+    return () => {
+      stopPoxeyHeartbeat()
+    }
+  }, [launched])
 
   useEffect(() => {
     fetch(`${API_BASE}/branding`)

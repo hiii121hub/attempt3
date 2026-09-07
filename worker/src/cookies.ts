@@ -133,26 +133,32 @@ export function storeCookies(
   destinationUrl: string,
   setCookieHeaders: string[]
 ): void {
-  const domain = getDomainFromUrl(destinationUrl)
-  if (!domain) return
-
-  if (!cookieStore[domain]) {
-    cookieStore[domain] = {}
-  }
+  const originDomain = getDomainFromUrl(destinationUrl)
+  if (!originDomain) return
 
   for (const header of setCookieHeaders) {
     const cookie = parseSetCookie(header)
     const [nameValue] = header.split(';')[0].trim().split('=')
     const cookieName = nameValue.trim()
 
+    // A Domain attribute controls which host/subdomains receive
+    // the cookie. Without Domain, the cookie is host-only.
+    const storageDomain = cookie.domain
+      ? cookie.domain.toLowerCase()
+      : originDomain
+
+    if (!cookieStore[storageDomain]) {
+      cookieStore[storageDomain] = {}
+    }
+
     // Check expiration
     if (cookie.expires && cookie.expires < new Date()) {
-      delete cookieStore[domain][cookieName]
+      delete cookieStore[storageDomain][cookieName]
       continue
     }
 
     // Store cookie
-    cookieStore[domain][cookieName] = {
+    cookieStore[storageDomain][cookieName] = {
       ...cookie,
       timestamp: Date.now(),
     }

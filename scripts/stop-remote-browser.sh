@@ -8,6 +8,15 @@ NC='\033[0m' # No Color
 
 echo -e "${YELLOW}Stopping Remote Browser services...${NC}"
 
+# Stop Poxey session manager
+if [ -f /tmp/remote-browser/session-manager.pid ]; then
+    SESSION_MANAGER_PID=$(cat /tmp/remote-browser/session-manager.pid)
+    echo "Killing Poxey session manager (PID: $SESSION_MANAGER_PID)"
+    kill "$SESSION_MANAGER_PID" 2>/dev/null || true
+fi
+
+pkill -f -- "scripts/session-manager.sh" 2>/dev/null || true
+
 # Read PIDs from files
 if [ -f /tmp/remote-browser/xvfb.pid ]; then
     XVFB_PID=$(cat /tmp/remote-browser/xvfb.pid)
@@ -41,6 +50,8 @@ pkill -f "websockify.*6080" 2>/dev/null || true
 
 # Clean up
 rm -rf /tmp/remote-browser
+rm -rf /tmp/chromium-remote-profile
+rm -rf /tmp/poxey-session
 rm -f /tmp/xvfb.log /tmp/vnc.log /tmp/websockify.log /tmp/chromium.log
 
 echo -e "${GREEN}Remote Browser services stopped${NC}"

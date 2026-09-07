@@ -219,7 +219,7 @@ export default {
         try {
           // Validate redirect target
           const redirectUrl = new URL(location, fullDestinationUrl).href
-          await validateRedirectTarget(redirectUrl, fullDestinationUrl)
+          await validateRedirectTarget(redirectUrl)
 
           // Redirect will be handled client-side through navigation bridge
           console.log(`Redirect: ${response.status} to ${redirectUrl}`)
@@ -232,11 +232,10 @@ export default {
     }
 
     // Store cookies from response
-    const setCookieHeaders = response.headers.getSetCookie?.()
-    if (setCookieHeaders && setCookieHeaders.length > 0) {
-      storeCookies(fullDestinationUrl, setCookieHeaders)
-    }
-
+const setCookieHeader = response.headers.get('Set-Cookie')
+if (setCookieHeader) {
+  storeCookies(fullDestinationUrl, [setCookieHeader])
+}
     // Get content type
     const contentType = response.headers.get('Content-Type')
 
@@ -248,7 +247,10 @@ export default {
       try {
         const text = new TextDecoder().decode(responseBody)
         const rewritten = rewriteHtml(text, destinationUrl)
-        responseBody = new TextEncoder().encode(rewritten)
+        const encoded = new TextEncoder().encode(rewritten)
+        const bodyBuffer = new ArrayBuffer(encoded.byteLength)
+        new Uint8Array(bodyBuffer).set(encoded)
+        responseBody = bodyBuffer
 
         // Update Content-Length since body changed
         const newHeaders = new Headers(response.headers)
@@ -271,7 +273,10 @@ export default {
       try {
         const text = new TextDecoder().decode(responseBody)
         const rewritten = rewriteCss(text, destinationUrl)
-        responseBody = new TextEncoder().encode(rewritten)
+        const encoded = new TextEncoder().encode(rewritten)
+        const bodyBuffer = new ArrayBuffer(encoded.byteLength)
+        new Uint8Array(bodyBuffer).set(encoded)
+        responseBody = bodyBuffer
 
         const newHeaders = new Headers(response.headers)
         newHeaders.delete('Content-Length')

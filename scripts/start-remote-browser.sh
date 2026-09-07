@@ -12,6 +12,7 @@ VNC_PORT=5901
 WEBSOCKET_PORT=6080
 PROFILE=/tmp/chromium-remote-profile
 LOG_DIR=/tmp/remote-browser
+SESSION_MANAGER_PID="$LOG_DIR/session-manager.pid"
 mkdir -p "$LOG_DIR"
 
 AVAILABLE_RAM=$(free -m | awk 'NR==2 { print $7 }')
@@ -98,7 +99,7 @@ start_x11vnc() {
     if pid_is_alive "$LOG_DIR/x11vnc.pid"; then return; fi
     remember_existing_pid "$LOG_DIR/x11vnc.pid" "x11vnc.*-rfbport $VNC_PORT" && return
     echo -e "${YELLOW}Starting x11vnc${NC}"
-    x11vnc -display "$DISPLAY_NUMBER" -rfbport "$VNC_PORT" -localhost -nopw -forever -shared -wait 10 -defer 10 \
+    x11vnc -display "$DISPLAY_NUMBER" -rfbport "$VNC_PORT" -localhost -nopw -forever -shared -wait 2 -defer 2 -speeds lan \
         >>"$LOG_DIR/x11vnc.log" 2>&1 &
     echo $! >"$LOG_DIR/x11vnc.pid"
 }
@@ -111,6 +112,21 @@ start_novnc() {
     "$NOVNC_PROXY" --vnc "localhost:$VNC_PORT" --listen "$WEBSOCKET_PORT" \
         >>"$LOG_DIR/novnc.log" 2>&1 &
     echo $! >"$LOG_DIR/novnc.pid"
+}
+
+start_session_manager() {
+  if [[ -s "$SESSION_MANAGER_PID" ]] && kill -0 "$(cat "$SESSION_MANAGER_PID")" 2>/dev/null; then
+    return
+  fi
+
+  if pgrep -f -- "scripts/session-manager.sh" >/dev/null 2>&1; then
+    pgrep -f -- "scripts/session-manager.sh" | head -n 1 >"$SESSION_MANAGER_PID"
+    return
+  fi
+
+  echo -e "${GREEN}Starting Poxey session manager${NC}"
+  nohup "$(dirname "$0")/session-manager.sh" >>"$LOG_DIR/session-manager.log" 2>&1 &
+  echo $! >"$SESSION_MANAGER_PID"
 }
 
 cleanup() {
@@ -128,8 +144,10 @@ start_xvfb
 start_chromium
 start_x11vnc
 start_novnc
+start_session_manager
 
 echo -e "${GREEN}Remote browser available: VNC $VNC_PORT, noVNC/websockify $WEBSOCKET_PORT${NC}"
+echo "Automatic session cleanup: 5 minutes without heartbeat"
 echo "Logs: $LOG_DIR"
 
 while true; do

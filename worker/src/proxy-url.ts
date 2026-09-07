@@ -23,14 +23,33 @@ export function decodeProxyPath(path: string): string | null {
   if (!match) return null
 
   let encoded = match[1]
-  // Add back padding
+
+  // Base64URL length can never have a remainder of 1.
+  if (encoded.length % 4 === 1) {
+    return null
+  }
+
+  // Convert Base64URL to standard Base64 and restore padding.
+  encoded = encoded.replace(/-/g, '+').replace(/_/g, '/')
   while (encoded.length % 4 !== 0) {
     encoded += '='
   }
-  encoded = encoded.replace(/-/g, '+').replace(/_/g, '/')
 
   try {
-    return atob(encoded)
+    const decoded = atob(encoded)
+
+    // Canonical round-trip validation prevents malformed Base64
+    // from being accepted merely because atob() is permissive.
+    const canonical = btoa(decoded)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '')
+
+    if (canonical !== match[1]) {
+      return null
+    }
+
+    return decoded
   } catch {
     return null
   }

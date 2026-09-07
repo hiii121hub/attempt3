@@ -247,6 +247,19 @@ export default class Websock {
         this._websocket.binaryType = "arraybuffer";
         this._websocket.onmessage = this._recvMessage.bind(this);
 
+    this._poxeyWsLastMessage = 0;
+    this._poxeyWsStart = 0;
+    this._poxeyWsReportAt = 0;
+    this._poxeyWsMessages = 0;
+    this._poxeyWsBytes = 0;
+    this._poxeyWsTotalGap = 0;
+    this._poxeyWsMaxGap = 0;
+    this._poxeyWsOver22 = 0;
+    this._poxeyWsOver50 = 0;
+    this._poxeyWsOver100 = 0;
+
+    console.log("[Poxey WS] instrumentation ready");
+
         this._websocket.onopen = () => {
             Log.Debug('>> WebSock.onopen');
             if (this._websocket.protocol) {
@@ -337,6 +350,40 @@ export default class Websock {
     }
 
     _recvMessage(e) {
+        const now = performance.now();
+
+        if (this._poxeyWsLastMessage > 0) {
+            const gap = now - this._poxeyWsLastMessage;
+            this._poxeyWsMessages++;
+            this._poxeyWsBytes += e.data.byteLength || 0;
+            this._poxeyWsTotalGap += gap;
+            this._poxeyWsMaxGap = Math.max(this._poxeyWsMaxGap, gap);
+
+            if (gap > 22.22) this._poxeyWsOver22++;
+            if (gap > 50) this._poxeyWsOver50++;
+            if (gap > 100) this._poxeyWsOver100++;
+
+            if (now - this._poxeyWsReportAt >= 2000) {
+                const elapsed = (now - this._poxeyWsStart) / 1000;
+                console.log(
+                    `[Poxey WS] ${elapsed.toFixed(1)}s | ` +
+                    `${this._poxeyWsMessages} msgs | ` +
+                    `${(this._poxeyWsBytes / elapsed / 1024).toFixed(1)} KB/s | ` +
+                    `avg gap ${(this._poxeyWsTotalGap / this._poxeyWsMessages).toFixed(1)}ms | ` +
+                    `max gap ${this._poxeyWsMaxGap.toFixed(1)}ms | ` +
+                    `>22ms ${this._poxeyWsOver22} | ` +
+                    `>50ms ${this._poxeyWsOver50} | ` +
+                    `>100ms ${this._poxeyWsOver100}`
+                );
+                this._poxeyWsReportAt = now;
+            }
+        } else {
+            this._poxeyWsStart = now;
+            this._poxeyWsReportAt = now;
+        }
+
+        this._poxeyWsLastMessage = now;
+
         this._DecodeMessage(e.data);
         if (this.rQlen > 0) {
             this._eventHandlers.message();
