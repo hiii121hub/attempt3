@@ -15,5 +15,11 @@
   "workspaces": [
     "frontend",
     "worker"
-  ]
+  ],
+  "dependencies": {
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
 }

@@ -36,6 +36,25 @@ export default defineConfig({
     port: 3999,
 
     proxy: {
+      '/audio': {
+        target: 'ws://127.0.0.1:3998',
+        ws: true,
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReqWs', (_proxyReq, req) => {
+            console.log('[Poxey Audio WS proxy] upgrade', req.url)
+          })
+          proxy.on('error', (err, req) => {
+            console.error('[Poxey Audio WS proxy] error', req.url, err.message)
+          })
+          proxy.on('open', () => {
+            console.log('[Poxey Audio WS proxy] target connected')
+          })
+          proxy.on('close', () => {
+            console.log('[Poxey Audio WS proxy] target closed')
+          })
+        },
+      },
       '/websockify': {
         target: 'ws://127.0.0.1:6080',
         ws: true,

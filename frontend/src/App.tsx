@@ -2,6 +2,7 @@ import React, { FormEvent, useEffect, useState } from 'react'
 import VNCViewer from './components/VNCViewer'
 import './App.css'
 import { startPoxeyHeartbeat, stopPoxeyHeartbeat } from './sessionHeartbeat'
+import PoxeyAudio from './PoxeyAudio'
 
 interface Branding {
   title: string
@@ -210,7 +211,7 @@ const BrowserPage: React.FC = () => {
         </button>
       </div>
 
-      <VNCViewer />
+      <><VNCViewer /><PoxeyAudio /></>
     </main>
   )
 }
