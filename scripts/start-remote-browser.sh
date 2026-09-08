@@ -79,31 +79,50 @@ start_xvfb() {
 }
 
 start_chromium() {
-    if pid_is_alive "$LOG_DIR/chromium.pid"; then return; fi
-    remember_existing_pid "$LOG_DIR/chromium.pid" "--user-data-dir=$PROFILE" && return
-    echo -e "${GREEN}Starting Chromium${NC}"
-    mkdir -p "$PROFILE"
+if pid_is_alive "$LOG_DIR/chromium.pid"; then return; fi
+remember_existing_pid "$LOG_DIR/chromium.pid" "--user-data-dir=$PROFILE" && return
+echo -e "${GREEN}Starting Chromium${NC}"
+mkdir -p "$PROFILE"
 
-    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-$(id -u)}"
-    mkdir -p "$XDG_RUNTIME_DIR"
-    chmod 700 "$XDG_RUNTIME_DIR"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-$(id -u)}"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
 
-    export PULSE_RUNTIME_PATH="$XDG_RUNTIME_DIR/pulse"
-    mkdir -p "$PULSE_RUNTIME_PATH"
+export PULSE_RUNTIME_PATH="$XDG_RUNTIME_DIR/pulse"
+mkdir -p "$PULSE_RUNTIME_PATH"
 
-    export PULSE_SERVER="unix:$PULSE_RUNTIME_PATH/native"
-    export PULSE_SINK="poxey_output"
+unset PULSE_SERVER
+pulseaudio --start --exit-idle-time=-1 >/dev/null 2>&1 || true
 
-    "$CHROMIUM_BIN" \
-        --disable-gpu \
-        --no-sandbox \
-        --user-data-dir="$PROFILE" \
-        --no-first-run \
-        --no-default-browser-check \
-        --start-maximized \
-        --display="$DISPLAY_NUMBER" \
-        >>"$LOG_DIR/chromium.log" 2>&1 &
-    echo $! >"$LOG_DIR/chromium.pid"
+export PULSE_SERVER="unix:$PULSE_RUNTIME_PATH/native"
+export PULSE_SINK="poxey_output"
+
+for _ in {1..20}; do
+    if pactl info >/dev/null 2>&1; then
+        break
+    fi
+    sleep 0.25
+done
+
+if ! pactl info >/dev/null 2>&1; then
+    echo -e "${RED}WARNING: PulseAudio did not become available${NC}"
+else
+    if ! pactl list short sinks 2>/dev/null | awk '$2=="poxey_output"{found=1} END{exit !found}'; then
+        pactl load-module module-null-sink sink_name=poxey_output sink_properties=device.description=PoxeyAudio >/dev/null
+    fi
+    pactl set-default-sink poxey_output
+fi
+
+"$CHROMIUM_BIN" \
+    --disable-gpu \
+    --no-sandbox \
+    --user-data-dir="$PROFILE" \
+    --no-first-run \
+    --no-default-browser-check \
+    --start-maximized \
+    --display="$DISPLAY_NUMBER" \
+    >>"$LOG_DIR/chromium.log" 2>&1 &
+echo $! >"$LOG_DIR/chromium.pid"
 }
 
 start_x11vnc() {
