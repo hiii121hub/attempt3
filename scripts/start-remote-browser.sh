@@ -115,6 +115,7 @@ fi
 
 "$CHROMIUM_BIN" \
     --disable-gpu \
+    --use-pulseaudio \
     --no-sandbox \
     --user-data-dir="$PROFILE" \
     --no-first-run \
