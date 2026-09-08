@@ -90,8 +90,8 @@ export default function PoxeyAudio() {
       onClick={enabled ? disableAudio : enableAudio}
       style={{
         position: 'fixed',
-        top: 16,
-        right: 16,
+        bottom: 16,
+        left: 16,
         zIndex: 9999,
         padding: '10px 16px',
         borderRadius: 10,
