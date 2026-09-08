@@ -232,17 +232,44 @@ export default {
     }
 
     // Store cookies from response
-const setCookieHeader = response.headers.get('Set-Cookie')
-if (setCookieHeader) {
-  storeCookies(fullDestinationUrl, [setCookieHeader])
-}
+    const setCookieHeaders = response.headers.getSetCookie?.() ??
+      (response.headers.get('Set-Cookie') ? [response.headers.get('Set-Cookie') as string] : [])
+    if (setCookieHeaders.length > 0) {
+      storeCookies(fullDestinationUrl, setCookieHeaders)
+    }
+
     // Get content type
     const contentType = response.headers.get('Content-Type')
 
-    // Clone response body for reading
-    let responseBody = await response.arrayBuffer()
+  // HTML/CSS must be buffered because Poxey rewrites their contents.
+  // Everything else (especially video/audio from googlevideo.com) stays
+  // streamed so Range requests and 206 Partial Content responses work.
+  const shouldRewrite = isHtmlContent(contentType) || isCssContent(contentType)
 
-    // Rewrite HTML content
+  if (!shouldRewrite) {
+    const finalHeaders = new Headers(response.headers)
+
+    // Add CORS headers
+    finalHeaders.set('Access-Control-Allow-Origin', '*')
+
+    // Remove headers that can prevent embedding
+    finalHeaders.delete('X-Frame-Options')
+    finalHeaders.delete('Content-Security-Policy')
+    finalHeaders.delete('Content-Security-Policy-Report-Only')
+
+    // Preserve the upstream status (including 206 Partial Content)
+    // and stream the upstream response body directly to the client.
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: finalHeaders,
+    })
+  }
+
+  // Only rewritten HTML/CSS responses are buffered.
+  let responseBody = await response.arrayBuffer()
+
+  // Rewrite HTML content
     if (isHtmlContent(contentType)) {
       try {
         const text = new TextDecoder().decode(responseBody)

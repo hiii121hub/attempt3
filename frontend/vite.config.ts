@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import fs from 'node:fs'
 
@@ -77,5 +77,10 @@ export default defineConfig({
 
   optimizeDeps: {
     exclude: ['novnc'],
+  },
+
+  test: {
+    environment: 'jsdom',
+    globals: true,
   },
 })

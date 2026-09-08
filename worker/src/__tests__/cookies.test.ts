@@ -78,4 +78,13 @@ describe('Cookie Management', () => {
     const cookies = getCookies(url + '/')
     expect(cookies).toMatch(/; /)
   })
+
+  it('should preserve cookie values containing equals signs and support multiple Set-Cookie headers', () => {
+    const url = 'https://example.com'
+    storeCookies(url, ['token=abc=123; Path=/', 'theme=dark; Path=/'])
+
+    const cookies = getCookies(url + '/')
+    expect(cookies).toContain('token=abc=123')
+    expect(cookies).toContain('theme=dark')
+  })
 })

@@ -42,10 +42,11 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
 
   useEffect(() => {
     const checkTouchDevice = () => {
-      setIsTouchDevice(
-        window.matchMedia('(pointer: coarse)').matches ||
-        navigator.maxTouchPoints > 0
-      )
+      const mediaQueryList = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(pointer: coarse)')
+        : null
+
+      setIsTouchDevice(Boolean(mediaQueryList?.matches) || navigator.maxTouchPoints > 0)
     }
 
     checkTouchDevice()

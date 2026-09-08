@@ -77,16 +77,21 @@ function domainMatches(cookieDomain: string | undefined, requestDomain: string):
  */
 function parseSetCookie(setCookieHeader: string): CookieAttributes {
   const parts = setCookieHeader.split(';').map(p => p.trim())
-  const [nameValue] = parts
-  const [, value] = nameValue.split('=').map(p => p.trim())
+  const nameValue = parts[0] ?? ''
+  const separatorIndex = nameValue.indexOf('=')
+  const value = separatorIndex === -1 ? '' : nameValue.slice(separatorIndex + 1).trim()
 
   const attributes: CookieAttributes = {
-    value: value || '',
+    value,
   }
 
   for (let i = 1; i < parts.length; i++) {
     const part = parts[i]
-    const [attrName, attrValue] = part.split('=').map(p => p.trim())
+    if (!part) continue
+
+    const separatorIndex = part.indexOf('=')
+    const attrName = separatorIndex === -1 ? part : part.slice(0, separatorIndex)
+    const attrValue = separatorIndex === -1 ? '' : part.slice(separatorIndex + 1).trim()
 
     switch (attrName.toLowerCase()) {
       case 'domain':
@@ -98,12 +103,13 @@ function parseSetCookie(setCookieHeader: string): CookieAttributes {
       case 'expires':
         attributes.expires = new Date(attrValue)
         break
-      case 'max-age':
+      case 'max-age': {
         const maxAge = parseInt(attrValue, 10)
         if (!isNaN(maxAge)) {
           attributes.expires = new Date(Date.now() + maxAge * 1000)
         }
         break
+      }
       case 'secure':
         attributes.secure = true
         break
@@ -138,8 +144,11 @@ export function storeCookies(
 
   for (const header of setCookieHeaders) {
     const cookie = parseSetCookie(header)
-    const [nameValue] = header.split(';')[0].trim().split('=')
-    const cookieName = nameValue.trim()
+    const firstPart = header.split(';')[0]?.trim() ?? ''
+    const separatorIndex = firstPart.indexOf('=')
+    const cookieName = separatorIndex === -1 ? firstPart : firstPart.slice(0, separatorIndex).trim()
+
+    if (!cookieName) continue
 
     // A Domain attribute controls which host/subdomains receive
     // the cookie. Without Domain, the cookie is host-only.

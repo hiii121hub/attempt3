@@ -83,6 +83,17 @@ start_chromium() {
     remember_existing_pid "$LOG_DIR/chromium.pid" "--user-data-dir=$PROFILE" && return
     echo -e "${GREEN}Starting Chromium${NC}"
     mkdir -p "$PROFILE"
+
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-$(id -u)}"
+    mkdir -p "$XDG_RUNTIME_DIR"
+    chmod 700 "$XDG_RUNTIME_DIR"
+
+    export PULSE_RUNTIME_PATH="$XDG_RUNTIME_DIR/pulse"
+    mkdir -p "$PULSE_RUNTIME_PATH"
+
+    export PULSE_SERVER="unix:$PULSE_RUNTIME_PATH/native"
+    export PULSE_SINK="poxey_output"
+
     "$CHROMIUM_BIN" \
         --disable-gpu \
         --no-sandbox \
@@ -153,7 +164,16 @@ echo "Logs: $LOG_DIR"
 while true; do
     sleep 5
     start_xvfb
-    if [[ -f "$LOG_DIR/chromium.pid" ]] && ! kill -0 "$(cat "$LOG_DIR/chromium.pid")" 2>/dev/null; then start_chromium; fi
+    if [[ -f "$LOG_DIR/chromium.pid" ]]; then
+            if ! kill -0 "$(cat "$LOG_DIR/chromium.pid")" 2>/dev/null; then
+                rm -f "$LOG_DIR/chromium.pid"
+                start_chromium
+            fi
+        else
+            if ! pgrep -f -- "--user-data-dir=$PROFILE" >/dev/null 2>&1; then
+                start_chromium
+            fi
+        fi
     start_x11vnc
     start_novnc
 done

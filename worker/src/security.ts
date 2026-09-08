@@ -89,12 +89,36 @@ function isPrivateIPv4(ip: string): boolean {
  * - multicast ff00::/8
  */
 function isPrivateIPv6(ip: string): boolean {
-  const normalized = ip.toLowerCase()
+  const normalized = ip.toLowerCase().replace(/^\[|\]$/g, '')
 
-  if (normalized === '::1' || normalized === '::') return true
+  if (!normalized || normalized === '::' || normalized === '::1') return true
 
-  const first = normalized.split(':')[0]
+  const mappedIpv4Match = normalized.match(/:(\d{1,3}(?:\.\d{1,3}){3})$/)
+  if (mappedIpv4Match) {
+    const mappedIpv4 = mappedIpv4Match[1]
+    if (isPrivateIPv4(mappedIpv4)) return true
+  }
 
+  const mappedPrefix = normalized.includes('::ffff:') ? normalized.split('::ffff:')[1] : null
+  if (mappedPrefix) {
+    const groups = mappedPrefix.split(':').filter(Boolean)
+    if (groups.length >= 1 && groups.length <= 2) {
+      const [hiHex, loHex] = groups
+      const hi = Number.parseInt(hiHex || '0', 16)
+      const lo = Number.parseInt(loHex || '0', 16)
+      if (!Number.isNaN(hi) && !Number.isNaN(lo)) {
+        const mappedIpv4 = [
+          hi >> 8,
+          hi & 0xff,
+          lo >> 8,
+          lo & 0xff,
+        ].join('.')
+        if (isPrivateIPv4(mappedIpv4)) return true
+      }
+    }
+  }
+
+  const first = normalized.split(':')[0] || ''
   if (first.startsWith('fc') || first.startsWith('fd')) return true
   if (first.startsWith('fe8') || first.startsWith('fe9')) return true
   if (first.startsWith('fea') || first.startsWith('feb')) return true
@@ -263,10 +287,22 @@ export async function validateSSRF(urlString: string): Promise<void> {
 export async function validateRedirectTarget(
   targetUrl: string
 ): Promise<void> {
-  if (
-    targetUrl.startsWith('http://') ||
-    targetUrl.startsWith('https://')
-  ) {
-    await validateSSRF(targetUrl)
-  }
+const normalized = targetUrl.trim()
+
+if (
+  normalized.startsWith('http://') ||
+  normalized.startsWith('https://')
+) {
+  await validateSSRF(normalized)
+  return
+}
+
+if (
+  normalized.startsWith('javascript:') ||
+  normalized.startsWith('data:') ||
+  normalized.startsWith('file:') ||
+  normalized.startsWith('blob:')
+) {
+  throw new SSRFError(`Blocked protocol: ${normalized.split(':', 1)[0]}`)
+}
 }

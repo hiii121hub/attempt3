@@ -38,6 +38,16 @@ describe('SSRF Protection', () => {
     await expect(validateSSRF('http://[::1]')).rejects.toThrow(SSRFError)
   })
 
+  it('should block IPv4-mapped IPv6 loopback', async () => {
+    await expect(validateSSRF('http://[::ffff:127.0.0.1]')).rejects.toThrow(SSRFError)
+    await expect(validateSSRF('http://[::ffff:10.0.0.1]')).rejects.toThrow(SSRFError)
+  })
+
+  it('should reject dangerous redirect targets', async () => {
+    await expect(import('../security').then(m => m.validateRedirectTarget('javascript:alert(1)'))).rejects.toThrow(SSRFError)
+    await expect(import('../security').then(m => m.validateRedirectTarget('data:text/html;base64,AAAA'))).rejects.toThrow(SSRFError)
+  })
+
   it('should allow IPv6 public addresses', async () => {
     // Note: This might not work perfectly in test environment
     // but should not throw for valid public IPv6
