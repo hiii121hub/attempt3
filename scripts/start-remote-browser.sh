@@ -116,6 +116,7 @@ fi
 "$CHROMIUM_BIN" \
     --disable-gpu \
     --use-pulseaudio \
+    --disable-features=AudioServiceOutOfProcess \
     --no-sandbox \
     --user-data-dir="$PROFILE" \
     --no-first-run \
