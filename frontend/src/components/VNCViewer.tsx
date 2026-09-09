@@ -152,7 +152,7 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const vncUrl = `${protocol}//${window.location.host}/websockify`
+    const vncUrl = `${protocol}//${window.location.host}/websockify?token=${encodeURIComponent(token)}`
 
     setStatus('Connecting to remote Chromium...')
 
