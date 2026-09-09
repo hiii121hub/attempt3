@@ -2,40 +2,19 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import fs from 'node:fs'
 
-const poxeySessionPlugin = () => ({
-  name: 'poxey-session',
-
-  configureServer(server) {
-    server.middlewares.use('/__poxey_session/heartbeat', (req, res) => {
-      if (req.method !== 'POST') {
-        res.statusCode = 405
-        res.end()
-        return
-      }
-
-      const sessionDir = '/tmp/poxey-session'
-      const heartbeatFile = `${sessionDir}/heartbeat`
-
-      fs.mkdirSync(sessionDir, { recursive: true })
-      fs.writeFileSync(
-        heartbeatFile,
-        String(Math.floor(Date.now() / 1000))
-      )
-
-      res.statusCode = 204
-      res.setHeader('Cache-Control', 'no-store')
-      res.end()
-    })
-  },
-})
-
 export default defineConfig({
-  plugins: [react(), poxeySessionPlugin()],
+  plugins: [react()],
 
   server: {
     port: 3999,
 
     proxy: {
+      '/__poxey_session': {
+        target: 'http://127.0.0.1:3997',
+        changeOrigin: true,
+rewrite: (path) => path.replace('/__poxey_session', '/session'),
+      },
+
       '/audio': {
         target: 'ws://127.0.0.1:3998',
         ws: true,

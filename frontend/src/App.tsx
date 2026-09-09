@@ -117,17 +117,55 @@ const AdminPage: React.FC = () => {
 
 const BrowserPage: React.FC = () => {
   const [launched, setLaunched] = useState(false)
+  const [sessionToken, setSessionToken] = useState<string | null>(null)
   const [branding, setBranding] = useState(DEFAULT_BRANDING)
 
   useEffect(() => {
-    if (launched) {
-      startPoxeyHeartbeat()
-    } else {
+    if (!launched) {
+      setSessionToken(null)
       stopPoxeyHeartbeat()
+      return
     }
 
+    let cancelled = false
+
+    const createSession = async () => {
+      try {
+        const response = await fetch('/__poxey_session/create', {
+          method: 'POST',
+          credentials: 'include',
+          cache: 'no-store',
+        })
+
+        if (!response.ok) {
+          throw new Error(`Session creation failed: ${response.status}`)
+        }
+
+        const session = await response.json()
+
+        if (!session?.token) {
+          throw new Error('Session creation returned no token')
+        }
+
+        if (cancelled) {
+          return
+        }
+
+        setSessionToken(session.token)
+        startPoxeyHeartbeat(session.token)
+      } catch (error) {
+        if (!cancelled) {
+          console.error('[Poxey session] failed to create session:', error)
+        }
+      }
+    }
+
+    createSession()
+
     return () => {
+      cancelled = true
       stopPoxeyHeartbeat()
+      setSessionToken(null)
     }
   }, [launched])
 
@@ -211,7 +249,7 @@ const BrowserPage: React.FC = () => {
         </button>
       </div>
 
-      <><VNCViewer /><PoxeyAudio /></>
+      <>{sessionToken ? <VNCViewer token={sessionToken} /> : <div className="flex h-full w-full items-center justify-center text-white">Starting remote browser...</div>}<PoxeyAudio /></>
     </main>
   )
 }

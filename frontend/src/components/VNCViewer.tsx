@@ -20,10 +20,11 @@ export interface VNCViewerHandle {
 
 interface VNCViewerProps {
   onConnected?: () => void
+  token: string
 }
 
 const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
-  ({ onConnected }, ref) => {
+  ({ onConnected, token }, ref) => {
   const targetRef = useRef<HTMLDivElement>(null)
   const rfbRef = useRef<any>(null)
   const mobileInputRef = useRef<HTMLInputElement>(null)
