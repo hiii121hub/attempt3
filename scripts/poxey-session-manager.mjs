@@ -223,6 +223,7 @@ async function createSession() {
     '/usr/bin/google-chrome',
     [
       '--disable-gpu',
+      '--num-raster-threads=2',
       '--use-pulseaudio',
       '--disable-features=AudioServiceOutOfProcess',
       '--no-sandbox',
