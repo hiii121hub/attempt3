@@ -12,7 +12,6 @@ async function sendHeartbeat() {
       cache: 'no-store',
       keepalive: true,
     })
-
     console.log('[Poxey heartbeat]', response.status, new Date().toISOString())
   } catch (error) {
     console.error('[Poxey heartbeat FAILED]', error)
