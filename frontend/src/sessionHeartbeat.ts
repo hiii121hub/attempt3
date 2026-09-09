@@ -1,12 +1,10 @@
 const HEARTBEAT_INTERVAL = 15_000
 const HEARTBEAT_URL = '/__poxey_session/heartbeat'
 
-let heartbeatTimer: number | null = null
-let started = false
-let sessionToken: string | null = null
+const heartbeats = new Map<string, number>()
 
-async function sendHeartbeat() {
-  if (!sessionToken) return
+async function sendHeartbeat(token: string) {
+  if (!token) return
 
   try {
     const response = await fetch(HEARTBEAT_URL, {
@@ -18,11 +16,9 @@ async function sendHeartbeat() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        token: sessionToken,
+        token,
       }),
     })
-
-    console.log('[Poxey heartbeat]', response.status, new Date().toISOString())
 
     if (!response.ok) {
       console.error('[Poxey heartbeat FAILED]', response.status)
@@ -33,47 +29,41 @@ async function sendHeartbeat() {
 }
 
 export function startPoxeyHeartbeat(token: string) {
-  if (started) return
+  if (heartbeats.has(token)) return
 
-  sessionToken = token
-  started = true
+  void sendHeartbeat(token)
 
-  console.log('[Poxey heartbeat] started')
+  const timer = window.setInterval(() => {
+    void sendHeartbeat(token)
+  }, HEARTBEAT_INTERVAL)
 
-  sendHeartbeat()
-
-  heartbeatTimer = window.setInterval(
-    sendHeartbeat,
-    HEARTBEAT_INTERVAL
-  )
+  heartbeats.set(token, timer)
 }
 
-export async function stopPoxeyHeartbeat() {
-  if (heartbeatTimer !== null) {
-    window.clearInterval(heartbeatTimer)
-    heartbeatTimer = null
+export async function stopPoxeyHeartbeat(token: string) {
+  const timer = heartbeats.get(token)
+
+  if (timer !== undefined) {
+    window.clearInterval(timer)
+    heartbeats.delete(token)
   }
 
-  if (sessionToken) {
-    try {
-      await fetch('/__poxey_session/end', {
-        method: 'POST',
-        credentials: 'include',
-        cache: 'no-store',
-        keepalive: true,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          token: sessionToken,
-        }),
-      })
-    } catch (error) {
-      console.error('[Poxey session end FAILED]', error)
-    }
-  }
+  await endPoxeySession(token)
+}
 
-  sessionToken = null
-  started = false
-  console.log('[Poxey heartbeat] stopped')
+export async function endPoxeySession(token: string) {
+  try {
+    await fetch('/__poxey_session/end', {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ token }),
+    })
+  } catch (error) {
+    console.error('[Poxey session end FAILED]', error)
+  }
 }

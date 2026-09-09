@@ -1,7 +1,11 @@
 import React, { FormEvent, useEffect, useState } from 'react'
 import VNCViewer from './components/VNCViewer'
 import './App.css'
-import { startPoxeyHeartbeat, stopPoxeyHeartbeat } from './sessionHeartbeat'
+import {
+  endPoxeySession,
+  startPoxeyHeartbeat,
+  stopPoxeyHeartbeat,
+} from './sessionHeartbeat'
 import PoxeyAudio from './PoxeyAudio'
 
 interface Branding {
@@ -123,11 +127,11 @@ const BrowserPage: React.FC = () => {
   useEffect(() => {
     if (!launched) {
       setSessionToken(null)
-      stopPoxeyHeartbeat()
       return
     }
 
     let cancelled = false
+    let createdToken: string | null = null
 
     const createSession = async () => {
       try {
@@ -148,9 +152,11 @@ const BrowserPage: React.FC = () => {
         }
 
         if (cancelled) {
+          await endPoxeySession(session.token)
           return
         }
 
+        createdToken = session.token
         setSessionToken(session.token)
         startPoxeyHeartbeat(session.token)
       } catch (error) {
@@ -164,7 +170,9 @@ const BrowserPage: React.FC = () => {
 
     return () => {
       cancelled = true
-      stopPoxeyHeartbeat()
+      if (createdToken) {
+        void stopPoxeyHeartbeat(createdToken)
+      }
       setSessionToken(null)
     }
   }, [launched])
