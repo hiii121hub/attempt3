@@ -4,7 +4,6 @@ import './App.css'
 import {
   endPoxeySession,
   startPoxeyHeartbeat,
-  stopPoxeyHeartbeat,
 } from './sessionHeartbeat'
 import PoxeyAudio from './PoxeyAudio'
 
@@ -120,21 +119,27 @@ const AdminPage: React.FC = () => {
 }
 
 const BrowserPage: React.FC = () => {
-  const [launched, setLaunched] = useState(false)
+  const [launched, setLaunched] = useState(() => typeof window !== 'undefined' && window.sessionStorage.getItem('poxey-launched') === 'true')
   const [sessionToken, setSessionToken] = useState<string | null>(null)
   const [branding, setBranding] = useState(DEFAULT_BRANDING)
 
   useEffect(() => {
     if (!launched) {
-      setSessionToken(null)
       return
     }
 
     let cancelled = false
-    let createdToken: string | null = null
 
-    const createSession = async () => {
+    const createOrRestoreSession = async () => {
       try {
+        const savedToken = window.sessionStorage.getItem('poxey-session-token')
+
+        if (savedToken) {
+          setSessionToken(savedToken)
+          startPoxeyHeartbeat(savedToken)
+          return
+        }
+
         const response = await fetch('/__poxey_session/create', {
           method: 'POST',
           credentials: 'include',
@@ -156,24 +161,20 @@ const BrowserPage: React.FC = () => {
           return
         }
 
-        createdToken = session.token
+        window.sessionStorage.setItem('poxey-session-token', session.token)
         setSessionToken(session.token)
         startPoxeyHeartbeat(session.token)
       } catch (error) {
         if (!cancelled) {
-          console.error('[Poxey session] failed to create session:', error)
+          console.error('[Poxey session] failed to create/restore session:', error)
         }
       }
     }
 
-    createSession()
+    void createOrRestoreSession()
 
     return () => {
       cancelled = true
-      if (createdToken) {
-        void stopPoxeyHeartbeat(createdToken)
-      }
-      setSessionToken(null)
     }
   }, [launched])
 
@@ -236,7 +237,7 @@ const BrowserPage: React.FC = () => {
 
           <button
             className="launch-button"
-            onClick={() => setLaunched(true)}
+            onClick={() => { window.sessionStorage.setItem('poxey-launched', 'true'); setLaunched(true) }}
           >
             Launch Browser
           </button>
@@ -250,7 +251,16 @@ const BrowserPage: React.FC = () => {
       <div className="remote-browser-controls">
         <button
           type="button"
-          onClick={() => setLaunched(false)}
+          onClick={() => {
+           const token = window.sessionStorage.getItem('poxey-session-token')
+           window.sessionStorage.removeItem('poxey-session-token')
+           setSessionToken(null)
+           setLaunched(false)
+
+           if (token) {
+             void endPoxeySession(token)
+           }
+         }}
           aria-label="Return to Poxey home"
         >
           🏠
