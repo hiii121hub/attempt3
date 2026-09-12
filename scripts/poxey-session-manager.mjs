@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process'
 const HOST = '127.0.0.1'
 const PORT = 3997
 const BASE_DIR = '/tmp/poxey-sessions'
-const DISPLAY_START = 2
+const DISPLAY_START = 3
 const VNC_PORT_START = 5902
 const MAX_SESSIONS = 2
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000
