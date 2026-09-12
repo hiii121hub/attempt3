@@ -79,6 +79,40 @@ function isAlive(child) {
   return child && child.exitCode === null && !child.killed
 }
 
+function processDescendants(pid) {
+  const children = []
+
+  for (const entry of fs.readdirSync('/proc', { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue
+
+    try {
+      const stat = fs.readFileSync(`/proc/${entry.name}/stat`, 'utf8')
+      const match = stat.match(/^\d+\s+\([^)]*\)\s+\S\s+(\d+)/)
+      if (match && Number(match[1]) === pid) {
+        children.push(Number(entry.name))
+      }
+    } catch {}
+  }
+
+  return children
+}
+
+function killProcessTree(child, signal) {
+  if (!child?.pid) return
+
+  const killPid = (pid) => {
+    for (const descendant of processDescendants(pid)) {
+      killPid(descendant)
+    }
+
+    try {
+      process.kill(pid, signal)
+    } catch {}
+  }
+
+  killPid(child.pid)
+}
+
 function waitForPort(port, timeoutMs = 5000) {
   return new Promise((resolve) => {
     const deadline = Date.now() + timeoutMs
@@ -282,14 +316,14 @@ function cleanupSession(session, reason = 'cleanup') {
 
   for (const child of [session.chrome, session.x11vnc, session.xvfb]) {
     if (isAlive(child)) {
-      child.kill('SIGTERM')
+      killProcessTree(child, 'SIGTERM')
     }
   }
 
   setTimeout(() => {
     for (const child of [session.chrome, session.x11vnc, session.xvfb]) {
       if (isAlive(child)) {
-        child.kill('SIGKILL')
+        killProcessTree(child, 'SIGKILL')
       }
     }
 
