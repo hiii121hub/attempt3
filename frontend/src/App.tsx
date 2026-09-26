@@ -1,153 +1,107 @@
-import React, { useState } from 'react'
-import BrowserUI from './components/BrowserUI'
-import { Tab, GatewayMessage } from './types'
-import './App.css'
+import React, { useState } from 'react';
+import './App.css';
 
-const App: React.FC = () => {
-  const [tabs, setTabs] = useState<Tab[]>([
-    {
-      id: 'tab-1',
-      title: 'Google',
-      destinationUrl: 'https://www.google.com',
-      proxyUrl: 'https://www.google.com',
-      history: ['https://www.google.com'],
-      historyIndex: 0,
-      isLoading: false,
-    },
-  ])
-  const [activeTabId, setActiveTabId] = useState<string | null>('tab-1')
+export function App() {
+  const [agreed, setAgreed] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
-  const handleNewTab = () => {
-    const newId = `tab-${Date.now()}`
-    const newTab: Tab = {
-      id: newId,
-      title: 'New Tab',
-      destinationUrl: '',
-      proxyUrl: '',
-      history: [],
-      historyIndex: -1,
-      isLoading: false,
-    }
-    setTabs(prev => [...prev, newTab])
-    setActiveTabId(newId)
-  }
-
-  const handleCloseTab = (tabId: string) => {
-    setTabs(prev => {
-      const filtered = prev.filter(t => t.id !== tabId)
-      if (activeTabId === tabId) {
-        setActiveTabId(filtered.length > 0 ? filtered[filtered.length - 1].id : null)
-      }
-      return filtered
-    })
-  }
-
-  const handleSelectTab = (tabId: string) => {
-    setActiveTabId(tabId)
-  }
-
-  const handleNavigate = (url: string) => {
-    if (!activeTabId) return
-    const formattedUrl = url.startsWith('http://') || url.startsWith('https://') 
-      ? url 
-      : `https://${url}`
-
-    setTabs(prev =>
-      prev.map(tab => {
-        if (tab.id !== activeTabId) return tab
-        const newHistory = [...tab.history.slice(0, tab.historyIndex + 1), formattedUrl]
-        return {
-          ...tab,
-          title: formattedUrl,
-          destinationUrl: formattedUrl,
-          proxyUrl: formattedUrl,
-          history: newHistory,
-          historyIndex: newHistory.length - 1,
-          isLoading: true,
-        }
-      })
-    )
-  }
-
-  const handleBack = () => {
-    if (!activeTabId) return
-    setTabs(prev =>
-      prev.map(tab => {
-        if (tab.id !== activeTabId || tab.historyIndex <= 0) return tab
-        const newIndex = tab.historyIndex - 1
-        const targetUrl = tab.history[newIndex]
-        return {
-          ...tab,
-          historyIndex: newIndex,
-          destinationUrl: targetUrl,
-          proxyUrl: targetUrl,
-          title: targetUrl,
-        }
-      })
-    )
-  }
-
-  const handleForward = () => {
-    if (!activeTabId) return
-    setTabs(prev =>
-      prev.map(tab => {
-        if (tab.id !== activeTabId || tab.historyIndex >= tab.history.length - 1) return tab
-        const newIndex = tab.historyIndex + 1
-        const targetUrl = tab.history[newIndex]
-        return {
-          ...tab,
-          historyIndex: newIndex,
-          destinationUrl: targetUrl,
-          proxyUrl: targetUrl,
-          title: targetUrl,
-        }
-      })
-    )
-  }
-
-  const handleRefresh = () => {
-    if (!activeTabId) return
-    setTabs(prev =>
-      prev.map(tab => (tab.id === activeTabId ? { ...tab, isLoading: true } : tab))
-    )
-  }
-
-  const handlePageTitleUpdate = (tabId: string, title: string) => {
-    setTabs(prev =>
-      prev.map(tab => (tab.id === tabId ? { ...tab, title } : tab))
-    )
-  }
-
-  const handlePageLoadComplete = (tabId: string) => {
-    setTabs(prev =>
-      prev.map(tab => (tab.id === tabId ? { ...tab, isLoading: false } : tab))
-    )
-  }
-
-  const handleNavigationFromProxy = (message: GatewayMessage) => {
-    if (message.destination && message.tabId) {
-      handleNavigate(message.destination)
-    }
-  }
+  const openTerms = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setShowTermsModal(true);
+  };
 
   return (
-    <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
-      <BrowserUI
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onNewTab={handleNewTab}
-        onCloseTab={handleCloseTab}
-        onSelectTab={handleSelectTab}
-        onNavigate={handleNavigate}
-        onBack={handleBack}
-        onForward={handleForward}
-        onRefresh={handleRefresh}
-        onPageTitleUpdate={handlePageTitleUpdate}
-        onPageLoadComplete={handlePageLoadComplete}
-        onNavigationFromProxy={handleNavigationFromProxy}
-      />
+    <div className="poxey-container">
+      <div className="poxey-wrapper">
+        
+        {/* Logo */}
+        <div className="poxey-logo-container">
+          <img 
+            src="/logo.png" 
+            alt="Poxey X Logo" 
+            className="poxey-logo-img"
+          />
+        </div>
+
+        {/* Subtitle & Description */}
+        <h2 className="poxey-main-subtitle">Your private browser, anywhere.</h2>
+        <p className="poxey-main-description">
+          Poxey is a private remote browser that lets you browse the web through a separate Chromium session running on our server. Websites load inside the remote browser instead of directly on your device.
+        </p>
+
+        {/* Feature Box */}
+        <div className="poxey-features">
+          <div className="feature-item">
+            <h3 className="feature-title">Remote browsing</h3>
+            <p className="feature-desc">Browse websites through a real Chromium browser.</p>
+          </div>
+
+          <div className="feature-item">
+            <h3 className="feature-title">Access restricted sites</h3>
+            <p className="feature-desc">Poxey can help access websites that your network, school, workplace, or device administrator may restrict.</p>
+          </div>
+
+          <div className="feature-item">
+            <h3 className="feature-title">Private session</h3>
+            <p className="feature-desc">Your browsing session runs separately from your normal browser.</p>
+          </div>
+
+          <div className="feature-item">
+            <h3 className="feature-title">Works anywhere</h3>
+            <p className="feature-desc">Use Poxey from a phone, tablet, or computer with a normal web browser.</p>
+          </div>
+        </div>
+
+        {/* Terms Checkbox */}
+        <div className="poxey-terms-container">
+          <label className="terms-label">
+            <input 
+              type="checkbox" 
+              className="terms-checkbox" 
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+            />
+            <span>
+              I agree to the{' '}
+              <a href="#" className="terms-link" onClick={openTerms}>
+                Terms & Conditions
+              </a>
+            </span>
+          </label>
+        </div>
+
+        {/* Launch Button */}
+        <button 
+          className={`poxey-launch-btn ${agreed ? 'active' : 'disabled'}`}
+          disabled={!agreed}
+        >
+          Launch Browser
+        </button>
+
+      </div>
+
+      {/* Terms Modal */}
+      {showTermsModal && (
+        <div className="terms-modal-overlay" onClick={() => setShowTermsModal(false)}>
+          <div className="terms-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="terms-modal-header">
+              <h3>Terms & Conditions</h3>
+              <button className="terms-close-btn" onClick={() => setShowTermsModal(false)}>✕</button>
+            </div>
+            <div className="terms-modal-body">
+              <p><strong>1. Acceptance of Terms</strong><br />By using Poxey X, you agree to these Terms & Conditions.</p>
+              <p><strong>2. Use of Poxey X</strong><br />Poxey X provides temporary remote browser sessions. You agree not to use the service for illegal, harmful, or malicious activity.</p>
+              <p><strong>3. Privacy</strong><br />Your browsing session is isolated from your device. Free session data is deleted when the session ends. Poxey X does not sell your browsing activity.</p>
+              <p><strong>4. Session Limits</strong><br />Free users receive a limited amount of browsing time every 24 hours. Unused time does not carry over.</p>
+              <p><strong>5. Service Availability</strong><br />Poxey X may experience interruptions, slowdowns, or changes due to maintenance, network conditions, or server availability.</p>
+              <p><strong>6. Agreement</strong><br />By checking "I agree to the Terms & Conditions" and launching Poxey X, you confirm that you agree to these terms.</p>
+            </div>
+            <button className="terms-modal-done" onClick={() => setShowTermsModal(false)}>Got It</button>
+          </div>
+        </div>
+      )}
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
