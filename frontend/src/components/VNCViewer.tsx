@@ -1,6 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 
-const VNCViewer: React.FC = () => {
+interface VNCViewerProps {
+  token?: string
+}
+
+const VNCViewer: React.FC<VNCViewerProps> = ({ token }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rfbRef = useRef<any>(null)
   const mobileInputRef = useRef<HTMLInputElement>(null)

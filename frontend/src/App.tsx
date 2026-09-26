@@ -4,12 +4,75 @@ import './App.css';
 export function App() {
   const [agreed, setAgreed] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
+  const [sessionActive, setSessionActive] = useState(false);
+  const [audioMuted, setAudioMuted] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(100);
 
   const openTerms = (e: React.MouseEvent) => {
     e.preventDefault();
     setShowTermsModal(true);
   };
 
+  const handleLaunch = () => {
+    if (!agreed) return;
+    setSessionActive(true);
+  };
+
+  // Live Chrome Session View
+  if (sessionActive) {
+    return (
+      <div className="poxey-session-container">
+        {/* Chrome Stream Container with Dynamic Scaling */}
+        <div className="poxey-viewport-wrapper">
+          <div 
+            className="poxey-chrome-canvas"
+            style={{ transform: `scale(${zoomLevel / 100})` }}
+          >
+            <div className="chrome-placeholder-stream">
+              <span className="live-badge">● LIVE CHROME SESSION</span>
+              <p className="stream-info">Connecting to Chromium server session...</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Control Dock */}
+        <div className="poxey-bottom-dock">
+          {/* Home Button */}
+          <button 
+            className="dock-btn home-btn" 
+            onClick={() => setSessionActive(false)}
+            title="Return Home"
+          >
+            🏠 Home
+          </button>
+
+          {/* Smooth Screen Resizer */}
+          <div className="dock-zoom-control">
+            <span className="zoom-label">{zoomLevel}%</span>
+            <input 
+              type="range" 
+              min="50" 
+              max="150" 
+              value={zoomLevel} 
+              onChange={(e) => setZoomLevel(Number(e.target.value))}
+              className="zoom-slider"
+            />
+          </div>
+
+          {/* Audio Button */}
+          <button 
+            className={`dock-btn audio-btn ${audioMuted ? 'muted' : ''}`} 
+            onClick={() => setAudioMuted(!audioMuted)}
+            title="Toggle Audio"
+          >
+            {audioMuted ? '🔇 Audio Off' : '🔊 Audio On'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Landing Page View
   return (
     <div className="poxey-container">
       <div className="poxey-wrapper">
@@ -74,6 +137,7 @@ export function App() {
         <button 
           className={`poxey-launch-btn ${agreed ? 'active' : 'disabled'}`}
           disabled={!agreed}
+          onClick={handleLaunch}
         >
           Launch Browser
         </button>
