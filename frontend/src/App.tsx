@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import './App.css';
 import VNCViewer from './components/VNCViewer';
 import PoxeyAudio from './PoxeyAudio';
@@ -13,6 +13,7 @@ export function App() {
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionToken, setSessionToken] = useState('');
   const [audioMuted, setAudioMuted] = useState(false);
+  const vncRef = useRef<any>(null);
   const [screenSize, setScreenSize] = useState(100);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState('');
@@ -89,7 +90,7 @@ export function App() {
       <div className="poxey-session-container">
         <div className="poxey-viewport-wrapper">
           <div className="poxey-chrome-canvas">
-            <VNCViewer token={sessionToken} />
+            <VNCViewer ref={vncRef} token={sessionToken} />
             <PoxeyAudio
               audioToken={sessionToken}
               enabled={!audioMuted}
@@ -98,7 +99,14 @@ export function App() {
           </div>
         </div>
 
-        <div className="poxey-bottom-dock">
+        <div className="left-toolbar">
+          <button
+            className="dock-btn keyboard-btn"
+            onClick={() => vncRef.current?.focusKeyboard()}
+            title="Toggle Keyboard"
+          >
+            ⌨️
+          </button>
           <button
             className="dock-btn home-btn"
             onClick={() => {
@@ -107,30 +115,15 @@ export function App() {
             }}
             title="Return Home"
           >
-            🏠 Home
+            🏠
           </button>
-
           <button
             className={`dock-btn audio-btn ${audioMuted ? 'muted' : ''}`}
             onClick={() => setAudioMuted(!audioMuted)}
             title="Toggle Audio"
           >
-            {audioMuted ? '🔇 Audio Off' : '🔊 Audio On'}
+            {audioMuted ? '🔇' : '🔊'}
           </button>
-        </div>
-
-        <div className="dock-zoom-control">
-          <span className="zoom-label">Size {screenSize}%</span>
-          <input
-            type="range"
-            min="75"
-            max="110"
-            step="5"
-            value={screenSize}
-            onChange={(e) => handleScreenSizeChange(Number(e.target.value))}
-            className="zoom-slider"
-            aria-label="Remote browser size"
-          />
         </div>
       </div>
     );

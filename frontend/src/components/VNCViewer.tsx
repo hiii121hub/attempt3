@@ -7,6 +7,7 @@ import React, {
 } from 'react'
 
 export interface VNCViewerHandle {
+  focusKeyboard: () => void
   navigate: (url: string) => void
   back: () => void
   forward: () => void
@@ -136,6 +137,7 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
   }
 
   const browserCommands: VNCViewerHandle = {
+    focusKeyboard: () => focusMobileKeyboard(),
     navigate,
     back: () => sendShortcut(keysyms.Alt, keysyms.ArrowLeft),
     forward: () => sendShortcut(keysyms.Alt, keysyms.ArrowRight),
@@ -148,7 +150,8 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
       sendModifiedShortcut([keysyms.Control, keysyms.Shift], keysyms.Tab),
   }
 
-  useImperativeHandle(ref, () => browserCommands, [connected])
+  const focusKeyboard = () => focusMobileKeyboard()
+  useImperativeHandle(ref, () => ({ ...browserCommands, focusKeyboard }), [connected])
 
 
   const sendWheelStep = (direction: 'up' | 'down') => {
@@ -172,7 +175,7 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
         clientX,
         clientY,
         deltaX: 0,
-        deltaY: direction === 'down' ? 50 : -50,
+        deltaY: direction === 'down' ? 25 : -25,
         deltaMode: 0,
       })
     )
@@ -185,7 +188,7 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
 
     scrollTimerRef.current = setInterval(() => {
       sendWheelStep(direction)
-    }, 90)
+    }, 45)
   }
 
   const stopScrolling = () => {
