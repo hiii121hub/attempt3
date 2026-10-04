@@ -351,7 +351,7 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
 
       if (!Number.isFinite(value)) return
 
-      applyScreenSize(Math.max(75, Math.min(110, value)))
+      applyScreenSize(Math.max(50, Math.min(150, value)))
     }
 
     const observer = new ResizeObserver(() => {

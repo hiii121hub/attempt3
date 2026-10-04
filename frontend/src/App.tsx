@@ -2,10 +2,18 @@ import React, { useEffect, useState, useRef } from 'react';
 import './App.css';
 import VNCViewer from './components/VNCViewer';
 import PoxeyAudio from './PoxeyAudio';
-import { startPoxeyHeartbeat, stopPoxeyHeartbeat } from './sessionHeartbeat';
+import { endPoxeySession, startPoxeyHeartbeat, stopPoxeyHeartbeat } from './sessionHeartbeat';
 
 const SESSION_API =
   '/__poxey_session/session/create';
+
+function formatSessionTime(remainingMs: number) {
+  const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
 
 export function App() {
   const [agreed, setAgreed] = useState(false);
@@ -16,13 +24,19 @@ export function App() {
   const vncRef = useRef<any>(null);
   const [screenSize, setScreenSize] = useState(100);
   const [launching, setLaunching] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
   const [error, setError] = useState('');
+  const [sessionRemainingMs, setSessionRemainingMs] = useState(0);
 
   useEffect(() => {
     if (!sessionActive || !sessionToken) return;
 
     startPoxeyHeartbeat(sessionToken, {
+      onRemainingMs: (remainingMs) => {
+        setSessionRemainingMs(remainingMs);
+      },
       onExpired: () => {
+        setSessionRemainingMs(0);
         setSessionActive(false);
         setSessionToken('');
         setError('Your Poxey session has ended.');
@@ -30,9 +44,23 @@ export function App() {
     });
 
     return () => {
-      void stopPoxeyHeartbeat(sessionToken);
+      stopPoxeyHeartbeat(sessionToken);
     };
   }, [sessionActive, sessionToken]);
+
+  useEffect(() => {
+    if (!sessionActive) return;
+
+    const timer = window.setInterval(() => {
+      setSessionRemainingMs((remainingMs) =>
+        Math.max(0, remainingMs - 1000),
+      );
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [sessionActive]);
 
   const openTerms = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -51,6 +79,32 @@ export function App() {
     )
   };
 
+  const handleEndSession = async () => {
+    if (!sessionToken || endingSession) return
+
+    setEndingSession(true)
+    setError('')
+
+    const token = sessionToken
+
+    stopPoxeyHeartbeat(token)
+
+    try {
+      const ended = await endPoxeySession(token)
+
+      if (!ended) {
+        setError('Could not end the Poxey session. Please try again.')
+        return
+      }
+
+      setSessionActive(false)
+      setSessionToken('')
+      setSessionRemainingMs(0)
+    } finally {
+      setEndingSession(false)
+    }
+  }
+
   const handleLaunch = async () => {
     if (!agreed || launching) return;
 
@@ -65,29 +119,76 @@ export function App() {
         },
       });
 
+      const data = await response.json().catch(() => ({}));
+
       if (!response.ok) {
+        if (data?.error === 'ALLOWANCE_EXHAUSTED') {
+          throw new Error(
+            'Your 25-minute Free allowance has been used. Please wait for your 24-hour allowance to reset.'
+          );
+        }
+
+        if (data?.error === 'ACTIVE_SESSION') {
+          throw new Error(
+            'This device already has an active Poxey session.'
+          );
+        }
+
         throw new Error(`Session creation failed: ${response.status}`);
       }
-
-      const data = await response.json();
 
       if (!data.token) {
         throw new Error('No session token returned');
       }
 
+      setSessionRemainingMs(
+        Number.isFinite(data?.remainingMs) ? data.remainingMs : 0,
+      );
       setSessionToken(data.token);
       setSessionActive(true);
     } catch (err) {
       console.error(err);
-      setError('Could not start the remote browser. Please try again.');
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Could not start the remote browser. Please try again.'
+      );
     } finally {
       setLaunching(false);
     }
   };
 
   if (sessionActive) {
+    const timerWarning =
+      sessionRemainingMs <= 60_000
+        ? 'critical'
+        : sessionRemainingMs <= 5 * 60_000
+          ? 'warning'
+          : '';
+
     return (
       <div className="poxey-session-container">
+        <div
+          className={`poxey-session-timer ${timerWarning}`}
+          aria-label={`${formatSessionTime(sessionRemainingMs)} remaining`}
+        >
+          <span className="timer-icon">⏱</span>
+          <span>{formatSessionTime(sessionRemainingMs)}</span>
+        </div>
+
+        <div className="dock-zoom-control" aria-label="Screen size">
+          <input
+            className="zoom-slider"
+            type="range"
+            min="60"
+            max="140"
+            step="5"
+            value={screenSize}
+            onChange={(e) => handleScreenSizeChange(Number(e.target.value))}
+            aria-label="Screen size"
+          />
+        </div>
         <div className="poxey-viewport-wrapper">
           <div className="poxey-chrome-canvas">
             <VNCViewer ref={vncRef} token={sessionToken} />
@@ -110,12 +211,12 @@ export function App() {
           <button
             className="dock-btn home-btn"
             onClick={() => {
-              setSessionActive(false);
-              setSessionToken('');
+              void handleEndSession()
             }}
-            title="Return Home"
+            disabled={endingSession}
+            title={endingSession ? 'Ending session...' : 'Return Home'}
           >
-            🏠
+            {endingSession ? '⏳' : '🏠'}
           </button>
           <button
             className={`dock-btn audio-btn ${audioMuted ? 'muted' : ''}`}

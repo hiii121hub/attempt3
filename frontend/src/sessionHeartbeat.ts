@@ -1,5 +1,5 @@
 const HEARTBEAT_INTERVAL = 15_000
-const HEARTBEAT_URL = '/__poxey_session/heartbeat'
+const HEARTBEAT_URL = '/__poxey_session/session/heartbeat'
 
 type HeartbeatOptions = {
   onRemainingMs?: (remainingMs: number) => void
@@ -76,20 +76,20 @@ export function startPoxeyHeartbeat(
   heartbeats.set(token, timer)
 }
 
-export async function stopPoxeyHeartbeat(token: string) {
+export function stopPoxeyHeartbeat(token: string) {
   const timer = heartbeats.get(token)
 
   if (timer !== undefined) {
     window.clearInterval(timer)
     heartbeats.delete(token)
   }
-
-  await endPoxeySession(token)
 }
 
 export async function endPoxeySession(token: string) {
+  if (!token) return false
+
   try {
-    await fetch('/__poxey_session/end', {
+    const response = await fetch('/__poxey_session/session/end', {
       method: 'POST',
       credentials: 'include',
       cache: 'no-store',
@@ -99,7 +99,19 @@ export async function endPoxeySession(token: string) {
       },
       body: JSON.stringify({ token }),
     })
+
+    if (response.ok) {
+      return true
+    }
+
+    if (response.status === 404) {
+      return true
+    }
+
+    console.error('[Poxey session end FAILED]', response.status)
+    return false
   } catch (error) {
     console.error('[Poxey session end FAILED]', error)
+    return false
   }
 }

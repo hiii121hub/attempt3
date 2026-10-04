@@ -1,21 +1,32 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 3000,
+    host: true,
+    port: 3999,
+    strictPort: true,
+    proxy: {
+      '/__poxey_session': {
+        target: 'http://localhost:3997',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/__poxey_session/, '')
+      },
+      '^/(rfb\\.js|vnc\\.html|app|core|vendor|po|styles|images|favicon\\.ico).*': {
+        target: 'http://localhost:6080',
+        changeOrigin: true
+      },
+      '/websockify': {
+        target: 'ws://localhost:3997',
+        ws: true,
+        changeOrigin: true
+      },
+      '/audio': {
+        target: 'ws://localhost:3998',
+        ws: true,
+        changeOrigin: true
+      }
+    }
   },
-  build: {
-    outDir: 'dist',
-    sourcemap: true,
-  },
-  define: {
-    'process.env.VITE_GATEWAY_URL': JSON.stringify(
-      process.env.VITE_GATEWAY_URL || 'http://localhost:8787'
-    ),
-  },
-  optimizeDeps: {
-    exclude: ['novnc'],
-  },
-})
+});
