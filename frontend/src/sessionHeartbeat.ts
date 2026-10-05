@@ -105,7 +105,8 @@ export async function endPoxeySession(token: string) {
     }
 
     if (response.status === 404) {
-      return true
+      console.error('[Poxey session end FAILED] Session not found')
+      return false
     }
 
     console.error('[Poxey session end FAILED]', response.status)
