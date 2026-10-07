@@ -80,6 +80,7 @@ export function App() {
   };
 
   const handleEndSession = async () => {
+    console.trace('[Poxey DEBUG] handleEndSession triggered')
     if (!sessionToken || endingSession) return
 
     setEndingSession(true)
