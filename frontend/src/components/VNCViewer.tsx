@@ -333,14 +333,14 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
 
       const fitScale = Math.min(
         availableWidth / 1024,
-        availableHeight / 768,
+        availableHeight / 700,
       )
 
       const requestedScale = sizePercent / 100
       const scale = Math.min(requestedScale, fitScale)
 
       target.style.width = '1024px'
-      target.style.height = '768px'
+      target.style.height = '700px'
       target.style.transform = `scale(${scale})`
       target.style.transformOrigin = 'center center'
     }
@@ -533,7 +533,8 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
       <div
         style={{
           width: '100%',
-          height: '100%',
+          flex: 1,
+          minHeight: 0,
           overflow: 'hidden',
           display: 'flex',
           justifyContent: 'center',

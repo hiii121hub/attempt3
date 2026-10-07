@@ -13,7 +13,7 @@ const DISPLAY_START = 2
 const VNC_PORT_START = 5902
 const MAX_SESSIONS = 100
 const BASE_WIDTH = 1024
-const BASE_HEIGHT = 768
+const BASE_HEIGHT = 700
 const MIN_SIZE_PERCENT = 75
 const MAX_SIZE_PERCENT = 150
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000
@@ -583,6 +583,7 @@ async function createSession(req, res) {
         '--no-first-run',
         '--no-default-browser-check',
         `--display=${displayName}`,
+        `--window-size=${BASE_WIDTH},${BASE_HEIGHT}`,
       ],
       chromeEnv,
       path.join(logDir, 'chrome.log'),
@@ -767,6 +768,8 @@ function cleanupSession(session, reason = 'cleanup') {
   if (!session || session.cleaningUp) return
 
   session.cleaningUp = true
+  sessions.delete(session.id)
+  writeTokenFile()
 
   chargeSessionUsage(session, Date.now())
 
