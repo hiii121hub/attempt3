@@ -415,6 +415,65 @@ process.kill(pid, signal)
 killPid(child.pid)
 }
 
+function cleanupOrphanedVncProcesses() {
+  for (const entry of fs.readdirSync('/proc', { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue
+
+    const pid = Number(entry.name)
+
+    try {
+      const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8')
+      const ppidMatch = status.match(/^PPid:\s+(\d+)/m)
+      if (!ppidMatch || Number(ppidMatch[1]) !== 1) continue
+
+      const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8')
+        .split('\0')
+        .filter(Boolean)
+
+      const command = cmdline[0] || ''
+      const isPoxeyXvfb =
+        command === 'Xvfb' &&
+        cmdline.includes('-nolisten')
+
+      const isPoxeyVnc =
+        command === 'x11vnc' &&
+        cmdline.includes('-localhost') &&
+        cmdline.includes('-nopw')
+
+      const isPoxeyChrome =
+        (
+          command === '/usr/bin/google-chrome' ||
+          command.endsWith('/google-chrome')
+        ) &&
+        cmdline.some(arg => arg.startsWith('--user-data-dir=/tmp/poxey-sessions/'))
+
+      if (!isPoxeyXvfb && !isPoxeyVnc && !isPoxeyChrome) continue
+
+      const displayIndex = cmdline.indexOf('-display')
+      const display =
+        displayIndex !== -1 ? cmdline[displayIndex + 1] : null
+
+      const portIndex = cmdline.indexOf('-rfbport')
+      const port =
+        portIndex !== -1 ? Number(cmdline[portIndex + 1]) : null
+
+      const type = isPoxeyXvfb
+        ? 'Xvfb'
+        : isPoxeyVnc
+          ? 'x11vnc'
+          : 'Chrome'
+
+      console.log(
+        `[Poxey Session] Removing orphaned ${type} pid=${pid}` +
+        `${display ? ` display=${display}` : ''}` +
+        `${Number.isInteger(port) ? ` port=${port}` : ''}`
+      )
+
+      killProcessTree({ pid }, 'SIGTERM')
+    } catch {}
+  }
+}
+
 function waitForPort(port, timeoutMs = 5000) {
   return new Promise((resolve) => {
     const deadline = Date.now() + timeoutMs
@@ -453,6 +512,22 @@ function usedDisplays() {
 
 function usedPorts() {
   return new Set([...sessions.values()].map(s => s.vncPort))
+}
+
+function isPortAvailable(port, host = HOST) {
+  return new Promise(resolve => {
+    const server = net.createServer()
+
+    server.once('error', () => {
+      resolve(false)
+    })
+
+    server.once('listening', () => {
+      server.close(() => resolve(true))
+    })
+
+    server.listen(port, host)
+  })
 }
 
 function findByToken(value) {
@@ -520,7 +595,16 @@ async function createSession(req, res) {
 
   try {
     const display = freeNumber(DISPLAY_START, usedDisplays())
-    const vncPort = freeNumber(VNC_PORT_START, usedPorts())
+
+    const reservedPorts = usedPorts()
+    let vncPort = VNC_PORT_START
+
+    while (
+      reservedPorts.has(vncPort) ||
+      !(await isPortAvailable(vncPort))
+    ) {
+      vncPort++
+    }
     const id = sessionId()
     const authToken = token()
 
@@ -791,8 +875,6 @@ function cleanupSession(session, reason = 'cleanup') {
     fs.rmSync(session.dir, { recursive: true, force: true })
   }, 1500)
 
-  sessions.delete(session.id)
-  writeTokenFile()
 }
 
 function parseBody(req) {
@@ -1024,6 +1106,8 @@ server.on('upgrade', (req, socket, head) => {
     socket.destroy()
   }
 })
+
+cleanupOrphanedVncProcesses()
 
 server.listen(PORT, HOST, () => {
   console.log(`[Poxey Session] Manager listening on http://${HOST}:${PORT}`)
