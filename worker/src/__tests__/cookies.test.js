@@ -2,7 +2,7 @@
  * Cookie handling tests
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { storeCookies, getCookies, clearCookies } from '../src/cookies';
+import { storeCookies, getCookies, clearCookies } from '../cookies';
 describe('Cookie Management', () => {
     beforeEach(() => {
         clearCookies('https://example.com');
@@ -56,6 +56,24 @@ describe('Cookie Management', () => {
         expect(cookies).toContain('session');
         expect(cookies).toContain('theme');
         expect(cookies).toContain('lang');
+    });
+    it('should clear applicable domain cookies without clearing unrelated host-only cookies', () => {
+        storeCookies('https://www.example.com', [
+            'shared=one; Domain=.example.com',
+            'www-only=two',
+        ]);
+        storeCookies('https://api.example.com', [
+            'api-only=three',
+        ]);
+        storeCookies('https://other.com', [
+            'unrelated=four',
+        ]);
+        clearCookies('https://api.example.com');
+        expect(getCookies('https://www.example.com/')).toContain('www-only=two');
+        expect(getCookies('https://www.example.com/')).not.toContain('shared=one');
+        expect(getCookies('https://api.example.com/')).not.toContain('api-only=three');
+        expect(getCookies('https://api.example.com/')).not.toContain('shared=one');
+        expect(getCookies('https://other.com/')).toContain('unrelated=four');
     });
     it('should format cookies correctly', () => {
         const url = 'https://example.com';

@@ -19,7 +19,7 @@ export function encodeProxyPath(destinationUrl: string): string {
  * Decode a proxy path to get destination URL
  */
 export function decodeProxyPath(path: string): string | null {
-  const match = path.match(/^\/p\/([A-Za-z0-9_-]+)/)
+  const match = path.match(/^\/p\/([A-Za-z0-9_-]+)(?:\/.*)?$/)
   if (!match) return null
 
   let encoded = match[1]
@@ -30,7 +30,18 @@ export function decodeProxyPath(path: string): string | null {
   encoded = encoded.replace(/-/g, '+').replace(/_/g, '/')
 
   try {
-    return atob(encoded)
+    const decoded = atob(encoded)
+    const canonical = btoa(decoded)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '')
+
+    if (canonical !== match[1]) return null
+
+    const destination = new URL(decoded)
+    if (!['http:', 'https:'].includes(destination.protocol)) return null
+
+    return decoded
   } catch {
     return null
   }
@@ -49,8 +60,9 @@ export function parseProxyRequest(path: string, query: string): {
   if (!destinationUrl) return null
 
   // Extract the remaining path after /p/<encoded-url>
-  const match = path.match(/^\/p\/[A-Za-z0-9_-]+(.*)$/)
-  const remainingPath = match ? match[1] || '/' : '/'
+  const match = path.match(/^\/p\/[A-Za-z0-9_-]+(\/.*)?$/)
+  if (!match) return null
+  const remainingPath = match[1] || '/'
 
   return { destinationUrl, remainingPath, query }
 }

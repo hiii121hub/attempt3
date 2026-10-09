@@ -4,7 +4,7 @@
  * Main proxy/gateway handler for the Private Browser application
  */
 import { validateSSRF, validateRedirectTarget } from './security';
-import { parseProxyRequest } from './proxy-url';
+import { encodeProxyPath, parseProxyRequest } from './proxy-url';
 import { rewriteHtml, rewriteCss } from './rewrite';
 import { storeCookies, getCookies } from './cookies';
 /**
@@ -26,19 +26,11 @@ function isCssContent(contentType) {
 /**
  * Check if content type indicates JSON or text-like
  */
-function isTextContent(contentType) {
-    if (!contentType)
-        return false;
-    return (contentType.includes('text/') ||
-        contentType.includes('application/json') ||
-        contentType.includes('application/javascript') ||
-        contentType.includes('application/xml'));
-}
 /**
  * Handle proxy request
  */
 export default {
-    async fetch(request, env) {
+    async fetch(request) {
         // Handle CORS preflight
         if (request.method === 'OPTIONS') {
             return new Response(null, {
@@ -77,6 +69,11 @@ export default {
         // Add cookies
         const cookies = getCookies(fullDestinationUrl);
         const headers = new Headers(request.headers);
+        // Never forward cookies or authentication credentials from the proxy request.
+        headers.delete('Cookie');
+        headers.delete('Authorization');
+        headers.delete('Proxy-Authorization');
+        // Add only cookies stored for the destination website.
         if (cookies) {
             headers.set('Cookie', cookies);
         }
@@ -112,10 +109,23 @@ export default {
             if (location) {
                 try {
                     // Validate redirect target
-                    const redirectUrl = new URL(location, fullDestinationUrl).href;
-                    await validateRedirectTarget(redirectUrl, fullDestinationUrl);
-                    // Redirect will be handled client-side through navigation bridge
-                    console.log(`Redirect: ${response.status} to ${redirectUrl}`);
+                    const redirectDestination = new URL(location, fullDestinationUrl);
+                    await validateRedirectTarget(redirectDestination.href, fullDestinationUrl);
+                    // Keep navigation inside the proxy so the next request is validated too.
+                    const proxyRedirectUrl = new URL(request.url);
+                    proxyRedirectUrl.pathname =
+                        encodeProxyPath(`${redirectDestination.origin}/`) +
+                            redirectDestination.pathname;
+                    proxyRedirectUrl.search = redirectDestination.search;
+                    proxyRedirectUrl.hash = redirectDestination.hash;
+                    const redirectHeaders = new Headers(response.headers);
+                    redirectHeaders.set('Location', proxyRedirectUrl.href);
+                    response = new Response(response.body, {
+                        status: response.status,
+                        statusText: response.statusText,
+                        headers: redirectHeaders,
+                    });
+                    console.log(`Redirect: ${response.status} through proxy to ${redirectDestination.href}`);
                 }
                 catch (e) {
                     const error = e;
@@ -138,7 +148,7 @@ export default {
             try {
                 const text = new TextDecoder().decode(responseBody);
                 const rewritten = rewriteHtml(text, destinationUrl);
-                responseBody = new TextEncoder().encode(rewritten);
+                responseBody = new TextEncoder().encode(rewritten).buffer;
                 // Update Content-Length since body changed
                 const newHeaders = new Headers(response.headers);
                 newHeaders.delete('Content-Length');
@@ -159,7 +169,7 @@ export default {
             try {
                 const text = new TextDecoder().decode(responseBody);
                 const rewritten = rewriteCss(text, destinationUrl);
-                responseBody = new TextEncoder().encode(rewritten);
+                responseBody = new TextEncoder().encode(rewritten).buffer;
                 const newHeaders = new Headers(response.headers);
                 newHeaders.delete('Content-Length');
                 newHeaders.delete('Content-Encoding');

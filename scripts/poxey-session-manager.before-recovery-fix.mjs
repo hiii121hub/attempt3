@@ -13,7 +13,7 @@ const DISPLAY_START = 2
 const VNC_PORT_START = 5902
 const MAX_SESSIONS = 100
 const BASE_WIDTH = 1024
-const BASE_HEIGHT = 700
+const BASE_HEIGHT = 768
 const MIN_SIZE_PERCENT = 75
 const MAX_SIZE_PERCENT = 150
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000
@@ -25,17 +25,14 @@ const FREE_DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
 const sessions = new Map()
 const startingFreeDevices = new Set()
-let sessionCreationLock = false
 
-fs.mkdirSync(BASE_DIR, { recursive: true, mode: 0o700 })
-fs.chmodSync(BASE_DIR, 0o700)
+fs.mkdirSync(BASE_DIR, { recursive: true })
 const TOKEN_DIR = path.join(BASE_DIR, 'tokens')
 const TOKEN_FILE = path.join(TOKEN_DIR, 'poxey.tokens')
 const FREE_USAGE_FILE = path.join(TOKEN_DIR, 'poxey-free-usage.json')
 const FREE_COOKIE_SECRET_FILE = path.join(TOKEN_DIR, 'poxey-free-cookie.secret')
 
-fs.mkdirSync(TOKEN_DIR, { recursive: true, mode: 0o700 })
-fs.chmodSync(TOKEN_DIR, 0o700)
+fs.mkdirSync(TOKEN_DIR, { recursive: true })
 
 async function waitForTcpPort(port, timeoutMs = 10000) {
   const started = Date.now()
@@ -418,65 +415,6 @@ process.kill(pid, signal)
 killPid(child.pid)
 }
 
-function cleanupOrphanedVncProcesses() {
-  for (const entry of fs.readdirSync('/proc', { withFileTypes: true })) {
-    if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue
-
-    const pid = Number(entry.name)
-
-    try {
-      const status = fs.readFileSync(`/proc/${pid}/status`, 'utf8')
-      const ppidMatch = status.match(/^PPid:\s+(\d+)/m)
-      if (!ppidMatch || Number(ppidMatch[1]) !== 1) continue
-
-      const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8')
-        .split('\0')
-        .filter(Boolean)
-
-      const command = cmdline[0] || ''
-      const isPoxeyXvfb =
-        command === 'Xvfb' &&
-        cmdline.includes('-nolisten')
-
-      const isPoxeyVnc =
-        command === 'x11vnc' &&
-        cmdline.includes('-localhost') &&
-        cmdline.includes('-nopw')
-
-      const isPoxeyChrome =
-        (
-          command === '/usr/bin/google-chrome' ||
-          command.endsWith('/google-chrome')
-        ) &&
-        cmdline.some(arg => arg.startsWith('--user-data-dir=/tmp/poxey-sessions/'))
-
-      if (!isPoxeyXvfb && !isPoxeyVnc && !isPoxeyChrome) continue
-
-      const displayIndex = cmdline.indexOf('-display')
-      const display =
-        displayIndex !== -1 ? cmdline[displayIndex + 1] : null
-
-      const portIndex = cmdline.indexOf('-rfbport')
-      const port =
-        portIndex !== -1 ? Number(cmdline[portIndex + 1]) : null
-
-      const type = isPoxeyXvfb
-        ? 'Xvfb'
-        : isPoxeyVnc
-          ? 'x11vnc'
-          : 'Chrome'
-
-      console.log(
-        `[Poxey Session] Removing orphaned ${type} pid=${pid}` +
-        `${display ? ` display=${display}` : ''}` +
-        `${Number.isInteger(port) ? ` port=${port}` : ''}`
-      )
-
-      killProcessTree({ pid }, 'SIGTERM')
-    } catch {}
-  }
-}
-
 function waitForPort(port, timeoutMs = 5000) {
   return new Promise((resolve) => {
     const deadline = Date.now() + timeoutMs
@@ -517,22 +455,6 @@ function usedPorts() {
   return new Set([...sessions.values()].map(s => s.vncPort))
 }
 
-function isPortAvailable(port, host = HOST) {
-  return new Promise(resolve => {
-    const server = net.createServer()
-
-    server.once('error', () => {
-      resolve(false)
-    })
-
-    server.once('listening', () => {
-      server.close(() => resolve(true))
-    })
-
-    server.listen(port, host)
-  })
-}
-
 function findByToken(value) {
   for (const session of sessions.values()) {
     if (session.token === value) return session
@@ -541,24 +463,14 @@ function findByToken(value) {
 }
 
 async function createSession(req, res) {
-  if (sessionCreationLock) {
+  if (sessions.size >= MAX_SESSIONS) {
     return {
-      error: 'SESSION_CREATION_BUSY',
-      message: 'A session is currently starting. Please try again shortly.',
+      error: 'MAX_SESSIONS',
+      message: `Maximum of ${MAX_SESSIONS} active sessions reached.`,
     }
   }
 
-  sessionCreationLock = true
-
-  try {
-    if (sessions.size >= MAX_SESSIONS) {
-      return {
-        error: 'MAX_SESSIONS',
-        message: `Maximum of ${MAX_SESSIONS} active sessions reached.`,
-      }
-    }
-
-    const { deviceId } = getOrCreateFreeDevice(req, res)
+  const { deviceId } = getOrCreateFreeDevice(req, res)
   const now = Date.now()
   const allowance = getFreeAllowance(deviceId, now)
 
@@ -606,287 +518,237 @@ async function createSession(req, res) {
   saveFreeAllowance(deviceId, allowance)
   startingFreeDevices.add(deviceId)
 
-  try {
-    const display = freeNumber(DISPLAY_START, usedDisplays())
+  const display = freeNumber(DISPLAY_START, usedDisplays())
+  const vncPort = freeNumber(VNC_PORT_START, usedPorts())
+  const id = sessionId()
+  const authToken = token()
 
-    const reservedPorts = usedPorts()
-    let vncPort = VNC_PORT_START
+  const dir = path.join(BASE_DIR, id)
+  const profile = path.join(dir, 'profile')
+  const logDir = path.join(dir, 'logs')
 
-    while (
-      reservedPorts.has(vncPort) ||
-      !(await isPortAvailable(vncPort))
-    ) {
-      vncPort++
-    }
-    const id = sessionId()
-    const authToken = token()
+  fs.mkdirSync(profile, { recursive: true })
+  fs.mkdirSync(logDir, { recursive: true })
 
-    const dir = path.join(BASE_DIR, id)
-    const profile = path.join(dir, 'profile')
-    const logDir = path.join(dir, 'logs')
+  const displayName = `:${display}`
 
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-    fs.chmodSync(dir, 0o700)
-    fs.mkdirSync(profile, { recursive: true, mode: 0o700 })
-    fs.chmodSync(profile, 0o700)
-    fs.mkdirSync(logDir, { recursive: true, mode: 0o700 })
-    fs.chmodSync(logDir, 0o700)
+  const xvfb = spawnLogged(
+    'Xvfb',
+    [
+      displayName,
+      '-screen',
+      '0',
+      '1600x1200x24',
+      '-nolisten',
+      'tcp',
+    ],
+    {},
+    path.join(logDir, 'xvfb.log'),
+  )
 
-    const displayName = `:${display}`
+  await new Promise(r => setTimeout(r, 1000))
 
-    const xvfb = spawnLogged(
-      'Xvfb',
-      [
-        displayName,
-        '-screen',
-        '0',
-        '1600x1200x24',
-        '-nolisten',
-        'tcp',
-      ],
-      {},
-      path.join(logDir, 'xvfb.log'),
-    )
-
-    await new Promise(r => setTimeout(r, 1000))
-
-    if (!isAlive(xvfb)) {
-      await cleanupStartupFailure(dir, [xvfb])
-      return {
-        error: 'XVFB_FAILED',
-        message: 'Failed to start Xvfb.',
-      }
-    }
-
-    const runtimeDir =
-      process.env.XDG_RUNTIME_DIR || `/tmp/runtime-${process.getuid?.() ?? 1000}`
-
-    const pulseRuntimePath = path.join(runtimeDir, 'pulse')
-    fs.mkdirSync(pulseRuntimePath, { recursive: true })
-
-    const chromeEnv = {
-      DISPLAY: displayName,
-      XDG_RUNTIME_DIR: runtimeDir,
-      PULSE_RUNTIME_PATH: pulseRuntimePath,
-      PULSE_SERVER: `unix:${pulseRuntimePath}/native`,
-      PULSE_SINK: 'poxey_output',
-    }
-
-    const chrome = spawnLogged(
-      '/usr/bin/google-chrome',
-      [
-        '--disable-gpu',
-        '--num-raster-threads=2',
-        '--use-pulseaudio',
-        '--disable-features=AudioServiceOutOfProcess',
-        '--no-sandbox',
-        `--user-data-dir=${profile}`,
-        '--no-first-run',
-        '--no-default-browser-check',
-        `--display=${displayName}`,
-        `--window-size=${BASE_WIDTH},${BASE_HEIGHT}`,
-      ],
-      chromeEnv,
-      path.join(logDir, 'chrome.log'),
-    )
-
-    await new Promise(r => setTimeout(r, 2000))
-
-    if (!isAlive(chrome)) {
-      killProcessTree(chrome, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
-      return {
-        error: 'CHROME_FAILED',
-        message: 'Failed to start Chrome.',
-      }
-    }
-
-    const chromeWindowId = findChromeWindowId(displayName)
-
-    if (!chromeWindowId) {
-      killProcessTree(chrome, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
-      return {
-        error: 'CHROME_WINDOW_NOT_FOUND',
-        message: 'Chrome started, but its window could not be detected.',
-      }
-    }
-
-    try {
-      resizeChromeWindow(
-        { chromeWindowId, display: displayName },
-        BASE_WIDTH,
-        BASE_HEIGHT,
-      )
-
-      const centeredX = Math.round((1600 - BASE_WIDTH) / 2)
-      const centeredY = Math.round((1200 - BASE_HEIGHT) / 2)
-
-      spawnSync(
-        '/usr/bin/xdotool',
-        [
-          'windowmove',
-          String(chromeWindowId),
-          String(centeredX),
-          String(centeredY),
-        ],
-        {
-          env: {
-            ...process.env,
-            DISPLAY: displayName,
-          },
-          encoding: 'utf8',
-        }
-      )
-    } catch (error) {
-      killProcessTree(chrome, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
-      return {
-        error: 'CHROME_RESIZE_FAILED',
-        message: error instanceof Error ? error.message : String(error),
-      }
-    }
-
-    const x11vnc = spawnLogged(
-      'x11vnc',
-      [
-        '-display',
-        displayName,
-        '-rfbport',
-        String(vncPort),
-        '-localhost',
-        '-nopw',
-        '-forever',
-        '-shared',
-        '-wait',
-        '2',
-        '-defer',
-        '0',
-        '-speeds',
-        'lan',
-      ],
-      {},
-      path.join(logDir, 'x11vnc.log'),
-    )
-
-    await new Promise(r => setTimeout(r, 1000))
-
-    if (!isAlive(x11vnc)) {
-      let x11vncLog = ''
-      try {
-        x11vncLog = fs.readFileSync(path.join(logDir, 'x11vnc.log'), 'utf8')
-      } catch (error) {
-        x11vncLog = `Unable to read x11vnc log: ${error instanceof Error ? error.message : String(error)}`
-      }
-
-      console.error(`[Poxey Session] X11VNC_FAILED_LOG\n${x11vncLog}`)
-
-      await cleanupStartupFailure(dir, [chrome, xvfb, x11vnc])
-      return {
-        error: 'VNC_FAILED',
-        message: 'Failed to start x11vnc.',
-      }
-    }
-
-    const vncReady = await waitForTcpPort(vncPort)
-
-    if (!vncReady) {
-      killProcessTree(chrome, 'SIGTERM')
-      killProcessTree(x11vnc, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
-      return {
-        error: 'VNC_NOT_READY',
-        message: 'VNC server did not become ready.',
-      }
-    }
-
-    const session = {
-      id,
-      token: authToken,
-      display,
-      vncPort,
-      dir,
-      profile,
-      xvfb,
-      x11vnc,
-      chrome,
-      chromeWindowId,
-      width: BASE_WIDTH,
-      height: BASE_HEIGHT,
-      deviceId,
-      createdAt: now,
-      expiresAt: now + Math.min(
-        FREE_SESSION_TIMEOUT_MS,
-        allowance.remainingMs,
-      ),
-      lastHeartbeat: now,
-      usageStartedAt: now,
-      lastUsageUpdateAt: now,
-    }
-
-    sessions.set(id, session)
-
-    const watchProcess = (name, child) => {
-      child.on('exit', (code, signal) => {
-        console.log(
-          `[Poxey Session] Process exited session=${session.id} process=${name} pid=${child.pid} code=${code} signal=${signal ?? 'none'}`
-        )
-
-        if (sessions.get(session.id) !== session || session.cleaningUp) {
-          return
-        }
-
-        cleanupSession(session, `${name} exited`)
-      })
-    }
-
-    watchProcess('chrome', chrome)
-    watchProcess('x11vnc', x11vnc)
-    watchProcess('xvfb', xvfb)
-
-    writeTokenFile()
-
-    return {
-      id,
-      token: authToken,
-      display,
-      vncPort,
-      createdAt: session.createdAt,
-      expiresAt: session.expiresAt,
-      remainingMs: allowance.remainingMs,
-    }
-  } finally {
+  if (!isAlive(xvfb)) {
+    fs.rmSync(dir, { recursive: true, force: true })
     startingFreeDevices.delete(deviceId)
-  }
-  } finally {
-    sessionCreationLock = false
-  }
-}
-
-async function cleanupStartupFailure(dir, children) {
-  for (const child of children) {
-    killProcessTree(child, 'SIGTERM')
-  }
-
-  await new Promise(resolve => setTimeout(resolve, 1500))
-
-  for (const child of children) {
-    if (isAlive(child)) {
-      killProcessTree(child, 'SIGKILL')
+    return {
+      error: 'XVFB_FAILED',
+      message: 'Failed to start Xvfb.',
     }
   }
 
-  await new Promise(resolve => setTimeout(resolve, 250))
+  const runtimeDir =
+    process.env.XDG_RUNTIME_DIR || `/tmp/runtime-${process.getuid?.() ?? 1000}`
 
-  fs.rmSync(dir, { recursive: true, force: true })
+  const pulseRuntimePath = path.join(runtimeDir, 'pulse')
+  fs.mkdirSync(pulseRuntimePath, { recursive: true })
+
+  const chromeEnv = {
+    DISPLAY: displayName,
+    XDG_RUNTIME_DIR: runtimeDir,
+    PULSE_RUNTIME_PATH: pulseRuntimePath,
+    PULSE_SERVER: `unix:${pulseRuntimePath}/native`,
+    PULSE_SINK: 'poxey_output',
+  }
+
+  const chrome = spawnLogged(
+    '/usr/bin/google-chrome',
+    [
+      '--disable-gpu',
+      '--num-raster-threads=2',
+      '--use-pulseaudio',
+      '--disable-features=AudioServiceOutOfProcess',
+      '--no-sandbox',
+      `--user-data-dir=${profile}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      `--display=${displayName}`,
+    ],
+    chromeEnv,
+    path.join(logDir, 'chrome.log'),
+  )
+
+  await new Promise(r => setTimeout(r, 2000))
+
+  if (!isAlive(chrome)) {
+    xvfb.kill('SIGTERM')
+    fs.rmSync(dir, { recursive: true, force: true })
+    startingFreeDevices.delete(deviceId)
+    return {
+      error: 'CHROME_FAILED',
+      message: 'Failed to start Chrome.',
+    }
+  }
+
+  const chromeWindowId = findChromeWindowId(displayName)
+
+  if (!chromeWindowId) {
+    chrome.kill('SIGTERM')
+    xvfb.kill('SIGTERM')
+    fs.rmSync(dir, { recursive: true, force: true })
+    startingFreeDevices.delete(deviceId)
+    return {
+      error: 'CHROME_WINDOW_NOT_FOUND',
+      message: 'Chrome started, but its window could not be detected.',
+    }
+  }
+
+  try {
+    resizeChromeWindow(
+      { chromeWindowId, display: displayName },
+      BASE_WIDTH,
+      BASE_HEIGHT,
+    )
+
+    const centeredX = Math.round((1600 - BASE_WIDTH) / 2)
+    const centeredY = Math.round((1200 - BASE_HEIGHT) / 2)
+
+    spawnSync(
+      '/usr/bin/xdotool',
+      [
+        'windowmove',
+        String(chromeWindowId),
+        String(centeredX),
+        String(centeredY),
+      ],
+      {
+        env: {
+          ...process.env,
+          DISPLAY: displayName,
+        },
+        encoding: 'utf8',
+      }
+    )
+  } catch (error) {
+    chrome.kill('SIGTERM')
+    xvfb.kill('SIGTERM')
+    fs.rmSync(dir, { recursive: true, force: true })
+    startingFreeDevices.delete(deviceId)
+    return {
+      error: 'CHROME_RESIZE_FAILED',
+      message: error instanceof Error ? error.message : String(error),
+    }
+  }
+
+  const x11vnc = spawnLogged(
+    'x11vnc',
+    [
+      '-display',
+      displayName,
+      '-rfbport',
+      String(vncPort),
+      '-localhost',
+      '-nopw',
+      '-forever',
+      '-shared',
+      '-wait',
+      '2',
+      '-defer',
+      '0',
+      '-speeds',
+      'lan',
+    ],
+    {},
+    path.join(logDir, 'x11vnc.log'),
+  )
+
+  await new Promise(r => setTimeout(r, 1000))
+
+  if (!isAlive(x11vnc)) {
+    let x11vncLog = ''
+    try {
+      x11vncLog = fs.readFileSync(path.join(logDir, 'x11vnc.log'), 'utf8')
+    } catch (error) {
+      x11vncLog = `Unable to read x11vnc log: ${error instanceof Error ? error.message : String(error)}`
+    }
+
+    console.error(`[Poxey Session] X11VNC_FAILED_LOG\n${x11vncLog}`)
+
+    chrome.kill('SIGTERM')
+    xvfb.kill('SIGTERM')
+    fs.rmSync(dir, { recursive: true, force: true })
+    startingFreeDevices.delete(deviceId)
+    return {
+      error: 'VNC_FAILED',
+      message: 'Failed to start x11vnc.',
+    }
+  }
+
+  const vncReady = await waitForTcpPort(vncPort)
+
+  if (!vncReady) {
+    chrome.kill('SIGTERM')
+    x11vnc.kill('SIGTERM')
+    xvfb.kill('SIGTERM')
+    fs.rmSync(dir, { recursive: true, force: true })
+    startingFreeDevices.delete(deviceId)
+    return {
+      error: 'VNC_NOT_READY',
+      message: 'VNC server did not become ready.',
+    }
+  }
+
+  const session = {
+    id,
+    token: authToken,
+    display,
+    vncPort,
+    dir,
+    profile,
+    xvfb,
+    x11vnc,
+    chrome,
+    chromeWindowId,
+    width: BASE_WIDTH,
+    height: BASE_HEIGHT,
+    deviceId,
+    createdAt: now,
+    expiresAt: now + Math.min(
+      FREE_SESSION_TIMEOUT_MS,
+      allowance.remainingMs,
+    ),
+    lastHeartbeat: now,
+    usageStartedAt: now,
+    lastUsageUpdateAt: now,
+  }
+
+  sessions.set(id, session)
+  startingFreeDevices.delete(deviceId)
+  writeTokenFile()
+
+  return {
+    id,
+    token: authToken,
+    display,
+    vncPort,
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
+    remainingMs: allowance.remainingMs,
+  }
 }
 
 function cleanupSession(session, reason = 'cleanup') {
-  if (!session || session.cleaningUp) return
-
-  session.cleaningUp = true
-  sessions.delete(session.id)
-  writeTokenFile()
+  if (!session) return
 
   chargeSessionUsage(session, Date.now())
 
@@ -908,47 +770,22 @@ function cleanupSession(session, reason = 'cleanup') {
     fs.rmSync(session.dir, { recursive: true, force: true })
   }, 1500)
 
+  sessions.delete(session.id)
+  writeTokenFile()
 }
 
 function parseBody(req) {
-  return new Promise((resolve, reject) => {
-    const MAX_BODY_BYTES = 10 * 1024
+  return new Promise((resolve) => {
     let body = ''
-    let settled = false
-
-    const fail = error => {
-      if (settled) return
-      settled = true
-      reject(error)
-    }
-
     req.on('data', chunk => {
-      if (settled) return
-
-      body += chunk.toString()
-
-      if (Buffer.byteLength(body, 'utf8') > MAX_BODY_BYTES) {
-        fail(new Error('REQUEST_BODY_TOO_LARGE'))
-      }
+      body += chunk
+      if (body.length > 10000) req.destroy()
     })
-
-    req.on('aborted', () => {
-      fail(new Error('REQUEST_ABORTED'))
-    })
-
-    req.on('error', error => {
-      fail(error)
-    })
-
     req.on('end', () => {
-      if (settled) return
-
       try {
-        settled = true
         resolve(body ? JSON.parse(body) : {})
       } catch {
-        settled = true
-        reject(new Error('INVALID_JSON'))
+        resolve({})
       }
     })
   })
@@ -1002,8 +839,7 @@ const server = http.createServer(async (req, res) => {
       if (
         result.error === 'MAX_SESSIONS' ||
         result.error === 'ALLOWANCE_EXHAUSTED' ||
-        result.error === 'ACTIVE_SESSION' ||
-        result.error === 'SESSION_CREATION_BUSY'
+        result.error === 'ACTIVE_SESSION'
       ) {
         status = 429
       }
@@ -1026,17 +862,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && req.url === '/session/resize') {
-    let body
-
-    try {
-      body = await parseBody(req)
-    } catch (error) {
-      return json(res, 400, {
-        error: 'INVALID_REQUEST',
-        message: error instanceof Error ? error.message : 'Invalid request',
-      })
-    }
-
+    const body = await parseBody(req)
     const session = findByToken(body.token)
 
     if (!session) {
@@ -1077,17 +903,7 @@ const server = http.createServer(async (req, res) => {
   }
 
 if (req.method === 'POST' && req.url === '/session/heartbeat') {
-    let body
-
-    try {
-      body = await parseBody(req)
-    } catch (error) {
-      return json(res, 400, {
-        error: 'INVALID_REQUEST',
-        message: error instanceof Error ? error.message : 'Invalid request',
-      })
-    }
-
+    const body = await parseBody(req)
     const session = findByToken(body.token)
 
     if (!session) {
@@ -1127,17 +943,7 @@ if (req.method === 'POST' && req.url === '/session/heartbeat') {
   }
 
   if (req.method === 'POST' && req.url === '/session/end') {
-    let body
-
-    try {
-      body = await parseBody(req)
-    } catch (error) {
-      return json(res, 400, {
-        error: 'INVALID_REQUEST',
-        message: error instanceof Error ? error.message : 'Invalid request',
-      })
-    }
-
+    const body = await parseBody(req)
     const session = findByToken(body.token)
 
     if (!session) {
@@ -1197,8 +1003,6 @@ server.on('upgrade', (req, socket, head) => {
     socket.destroy()
   }
 })
-
-cleanupOrphanedVncProcesses()
 
 server.listen(PORT, HOST, () => {
   console.log(`[Poxey Session] Manager listening on http://${HOST}:${PORT}`)

@@ -21,8 +21,8 @@ const PRIVATE_IPV4_RANGES = [
   { start: '127.0.0.0', end: '127.255.255.255' },       // Loopback
   { start: '169.254.0.0', end: '169.254.255.255' },     // Link-local
   { start: '172.16.0.0', end: '172.31.255.255' },       // Private
-  { start: '192.0.0.0', end: '192.0.2.255' },           // TEST-NET-1
-  { start: '192.0.2.0', end: '192.0.2.255' },           // Documentation
+  { start: '192.0.0.0', end: '192.0.0.255' },           // IETF protocol assignments
+  { start: '192.0.2.0', end: '192.0.2.255' },           // TEST-NET-1 documentation
   { start: '192.168.0.0', end: '192.168.255.255' },     // Private
   { start: '198.18.0.0', end: '198.19.255.255' },       // Network testing
   { start: '198.51.100.0', end: '198.51.100.255' },     // TEST-NET-2
@@ -81,16 +81,17 @@ function isPrivateIPv4(ip: string): boolean {
  * Check if IPv6 is private/local
  */
 function isPrivateIPv6(ip: string): boolean {
-  // Loopback
-  if (ip === '::1') return true
-  // Link-local
-  if (ip.startsWith('fe80:')) return true
-  // Unique local
-  if (ip.startsWith('fc00:') || ip.startsWith('fd00:')) return true
-  // Multicast
-  if (ip.startsWith('ff00:')) return true
-  // Unspecified
-  if (ip === '::') return true
+  const address = ip.toLowerCase()
+
+  // Block loopback, unspecified, link-local, unique-local and multicast.
+  if (address === '::1' || address === '::') return true
+  if (/^fe[89ab][0-9a-f]:/i.test(address)) return true
+  if (/^f[cd][0-9a-f]{2}:/i.test(address)) return true
+  if (/^ff[0-9a-f]{2}:/i.test(address)) return true
+
+  // Reject IPv4-mapped IPv6 addresses rather than risk bypassing IPv4 checks.
+  if (address.startsWith('::ffff:') || address.startsWith('0:0:0:0:0:ffff:')) return true
+
   return false
 }
 
@@ -107,6 +108,9 @@ export async function validateSSRF(urlString: string): Promise<void> {
     }
 
     const hostname = url.hostname.toLowerCase()
+    const normalizedIp = hostname.startsWith('[') && hostname.endsWith(']')
+      ? hostname.slice(1, -1)
+      : hostname
 
     // Check blocked hostnames
     for (const blocked of BLOCKED_HOSTNAMES) {
@@ -129,16 +133,23 @@ export async function validateSSRF(urlString: string): Promise<void> {
       // A true DNS resolution isn't available, but we can check common patterns.
       
       // IPv4 checks
-      if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
-        if (isPrivateIPv4(hostname)) {
-          throw new SSRFError(`Blocked private IPv4: ${hostname}`)
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(normalizedIp)) {
+        if (isPrivateIPv4(normalizedIp)) {
+          throw new SSRFError(`Blocked private IPv4: ${normalizedIp}`)
         }
       }
 
       // IPv6 checks
-      if (hostname.includes(':')) {
-        if (isPrivateIPv6(hostname)) {
-          throw new SSRFError(`Blocked private IPv6: ${hostname}`)
+      if (normalizedIp.includes(':')) {
+        const mappedIpv4 = normalizedIp.match(
+          /^(?:::ffff:|0:0:0:0:0:ffff:)(\d+\.\d+\.\d+\.\d+)$/i
+        )
+
+        if (
+          isPrivateIPv6(normalizedIp) ||
+          (mappedIpv4 && isPrivateIPv4(mappedIpv4[1]))
+        ) {
+          throw new SSRFError(`Blocked private IPv6: ${normalizedIp}`)
         }
       }
     } catch (e) {
@@ -156,11 +167,16 @@ export async function validateSSRF(urlString: string): Promise<void> {
  * Validate a redirect target is safe
  */
 export async function validateRedirectTarget(
-  targetUrl: string
+  targetUrl: string,
+  sourceUrl: string
 ): Promise<void> {
-  // Absolute URLs must pass SSRF check
-  if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
-    await validateSSRF(targetUrl)
+  let resolved: URL
+
+  try {
+    resolved = new URL(targetUrl, sourceUrl)
+  } catch {
+    throw new SSRFError('Invalid redirect URL')
   }
-  // Relative URLs are safe by definition (relative to valid source)
+
+  await validateSSRF(resolved.href)
 }

@@ -77,20 +77,20 @@ export function rewriteHtml(html, destinationUrl) {
     // For production, use a proper HTML parser like cheerio
     let result = html;
     // Rewrite anchor hrefs
-    result = result.replace(/href=["']([^"']+)["']/gi, (match, url) => {
+    result = result.replace(/href=["']([^"']+)["']/gi, (_match, url) => {
         const rewritten = rewriteUrlToProxy(url, destinationUrl);
         return `href="${rewritten}"`;
     });
     // Rewrite img src
-    result = result.replace(/src=["']([^"']+)["']/gi, (match, url) => {
+    result = result.replace(/src=["']([^"']+)["']/gi, (_match, url) => {
         const rewritten = rewriteUrlToProxy(url, destinationUrl);
         return `src="${rewritten}"`;
     });
     // Rewrite srcset
-    result = result.replace(/srcset=["']([^"']+)["']/gi, (match, srcset) => {
+    result = result.replace(/srcset=["']([^"']+)["']/gi, (_match, srcset) => {
         const rewritten = srcset
             .split(',')
-            .map(item => {
+            .map((item) => {
             const parts = item.trim().split(/\s+/);
             const url = parts[0];
             const descriptor = parts.slice(1).join(' ');
@@ -101,12 +101,12 @@ export function rewriteHtml(html, destinationUrl) {
         return `srcset="${rewritten}"`;
     });
     // Rewrite form actions
-    result = result.replace(/action=["']([^"']+)["']/gi, (match, url) => {
+    result = result.replace(/action=["']([^"']+)["']/gi, (_match, url) => {
         const rewritten = rewriteUrlToProxy(url, destinationUrl);
         return `action="${rewritten}"`;
     });
     // Rewrite style URLs
-    result = result.replace(/url\(["']?([^"')]+)["']?\)/gi, (match, url) => {
+    result = result.replace(/url\(["']?([^"')]+)["']?\)/gi, (_match, url) => {
         const cleanUrl = url.replace(/^["']|["']$/g, '');
         const rewritten = rewriteUrlToProxy(cleanUrl, destinationUrl);
         return `url("${rewritten}")`;
@@ -121,13 +121,13 @@ export function rewriteHtml(html, destinationUrl) {
 export function rewriteCss(css, destinationUrl) {
     let result = css;
     // Rewrite url() in CSS
-    result = result.replace(/url\(["']?([^"')]+)["']?\)/gi, (match, url) => {
+    result = result.replace(/url\(["']?([^"')]+)["']?\)/gi, (_match, url) => {
         const cleanUrl = url.replace(/^["']|["']$/g, '');
         const rewritten = rewriteUrlToProxy(cleanUrl, destinationUrl);
         return `url("${rewritten}")`;
     });
     // Rewrite @import
-    result = result.replace(/@import\s+["']([^"']+)["']/gi, (match, url) => {
+    result = result.replace(/@import\s+["']([^"']+)["']/gi, (_match, url) => {
         const rewritten = rewriteUrlToProxy(url, destinationUrl);
         return `@import "${rewritten}"`;
     });

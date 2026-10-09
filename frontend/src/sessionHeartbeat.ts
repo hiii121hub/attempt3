@@ -7,6 +7,18 @@ type HeartbeatOptions = {
 }
 
 const heartbeats = new Map<string, number>()
+const pagehideHandlers = new Map<string, () => void>()
+
+function sendSessionEndBeacon(token: string) {
+  if (!token || !navigator.sendBeacon) return
+
+  const body = new Blob(
+    [JSON.stringify({ token })],
+    { type: 'application/json' },
+  )
+
+  navigator.sendBeacon('/__poxey_session/session/end', body)
+}
 
 async function sendHeartbeat(
   token: string,
@@ -73,7 +85,14 @@ export function startPoxeyHeartbeat(
     void sendHeartbeat(token, options)
   }, HEARTBEAT_INTERVAL)
 
+  const pagehideHandler = () => {
+    sendSessionEndBeacon(token)
+  }
+
+  window.addEventListener('pagehide', pagehideHandler)
+
   heartbeats.set(token, timer)
+  pagehideHandlers.set(token, pagehideHandler)
 }
 
 export function stopPoxeyHeartbeat(token: string) {
@@ -82,6 +101,13 @@ export function stopPoxeyHeartbeat(token: string) {
   if (timer !== undefined) {
     window.clearInterval(timer)
     heartbeats.delete(token)
+  }
+
+  const pagehideHandler = pagehideHandlers.get(token)
+
+  if (pagehideHandler) {
+    window.removeEventListener('pagehide', pagehideHandler)
+    pagehideHandlers.delete(token)
   }
 }
 

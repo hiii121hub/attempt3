@@ -5,7 +5,7 @@
  */
 
 import { validateSSRF, validateRedirectTarget } from './security'
-import { parseProxyRequest } from './proxy-url'
+import { encodeProxyPath, parseProxyRequest } from './proxy-url'
 import { rewriteHtml, rewriteCss } from './rewrite'
 import { storeCookies, getCookies } from './cookies'
 
@@ -85,6 +85,13 @@ export default {
     // Add cookies
     const cookies = getCookies(fullDestinationUrl)
     const headers = new Headers(request.headers)
+
+    // Never forward cookies or authentication credentials from the proxy request.
+    headers.delete('Cookie')
+    headers.delete('Authorization')
+    headers.delete('Proxy-Authorization')
+
+    // Add only cookies stored for the destination website.
     if (cookies) {
       headers.set('Cookie', cookies)
     }
@@ -123,11 +130,26 @@ export default {
       if (location) {
         try {
           // Validate redirect target
-          const redirectUrl = new URL(location, fullDestinationUrl).href
-          await validateRedirectTarget(redirectUrl, fullDestinationUrl)
+          const redirectDestination = new URL(location, fullDestinationUrl)
+          await validateRedirectTarget(redirectDestination.href, fullDestinationUrl)
 
-          // Redirect will be handled client-side through navigation bridge
-          console.log(`Redirect: ${response.status} to ${redirectUrl}`)
+          // Keep navigation inside the proxy so the next request is validated too.
+          const proxyRedirectUrl = new URL(request.url)
+          proxyRedirectUrl.pathname =
+            encodeProxyPath(`${redirectDestination.origin}/`) +
+            redirectDestination.pathname
+          proxyRedirectUrl.search = redirectDestination.search
+          proxyRedirectUrl.hash = redirectDestination.hash
+
+          const redirectHeaders = new Headers(response.headers)
+          redirectHeaders.set('Location', proxyRedirectUrl.href)
+          response = new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: redirectHeaders,
+          })
+
+          console.log(`Redirect: ${response.status} through proxy to ${redirectDestination.href}`)
         } catch (e) {
           const error = e as Error
           console.error('Invalid redirect:', error.message)
@@ -137,7 +159,7 @@ export default {
     }
 
     // Store cookies from response
-    const setCookieHeaders = response.headers.getSetCookie?.()
+    const setCookieHeaders = (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.()
     if (setCookieHeaders && setCookieHeaders.length > 0) {
       storeCookies(fullDestinationUrl, setCookieHeaders)
     }
@@ -153,7 +175,7 @@ export default {
       try {
         const text = new TextDecoder().decode(responseBody)
         const rewritten = rewriteHtml(text, destinationUrl)
-        responseBody = new TextEncoder().encode(rewritten)
+        responseBody = new TextEncoder().encode(rewritten).buffer as ArrayBuffer
 
         // Update Content-Length since body changed
         const newHeaders = new Headers(response.headers)
@@ -176,7 +198,7 @@ export default {
       try {
         const text = new TextDecoder().decode(responseBody)
         const rewritten = rewriteCss(text, destinationUrl)
-        responseBody = new TextEncoder().encode(rewritten)
+        responseBody = new TextEncoder().encode(rewritten).buffer as ArrayBuffer
 
         const newHeaders = new Headers(response.headers)
         newHeaders.delete('Content-Length')

@@ -2,7 +2,8 @@
  * URL Rewriting tests
  */
 import { describe, it, expect } from 'vitest';
-import { resolveUrl, rewriteUrlToProxy } from '../src/rewrite';
+import { resolveUrl, rewriteUrlToProxy } from '../rewrite';
+import { decodeProxyPath } from '../proxy-url';
 describe('URL Resolution', () => {
     it('should resolve relative URLs', () => {
         const base = 'https://example.com/blog/post';
@@ -37,14 +38,14 @@ describe('URL Rewriting to Proxy', () => {
         const base = 'https://example.com/';
         const rewritten = rewriteUrlToProxy(url, base);
         expect(rewritten).toContain('/p/');
-        expect(rewritten).toContain('cdn.example.com');
+        expect(decodeProxyPath(new URL(rewritten).pathname)).toBe(url);
     });
     it('should rewrite relative URLs', () => {
         const url = 'css/style.css';
         const base = 'https://example.com/blog/post';
         const rewritten = rewriteUrlToProxy(url, base);
         expect(rewritten).toContain('/p/');
-        expect(rewritten).toContain('example.com');
+        expect(decodeProxyPath(new URL(rewritten).pathname)).toBe(new URL(url, base).href);
     });
     it('should preserve special URLs', () => {
         const base = 'https://example.com';

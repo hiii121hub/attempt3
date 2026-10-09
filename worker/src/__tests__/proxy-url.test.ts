@@ -29,15 +29,22 @@ describe('Proxy URL Encoding', () => {
 
   it('should encode to base64url format', () => {
     const encoded = encodeProxyPath('https://example.com')
-    expect(encoded).toMatch(/^\/p\/[A-Za-z0-9_-]+$/)
-    expect(encoded).not.toMatch(/\+/)
-    expect(encoded).not.toMatch(/\//)
-    expect(encoded).not.toMatch(/=/)
+    const token = encoded.slice('/p/'.length)
+    expect(token).toMatch(/^[A-Za-z0-9_-]+$/)
+    expect(token).not.toMatch(/\+/)
+    expect(token).not.toMatch(/\//)
+    expect(token).not.toMatch(/=/)
   })
 
   it('should return null for invalid proxy paths', () => {
     expect(decodeProxyPath('/invalid/path')).toBeNull()
     expect(decodeProxyPath('/p/invalid!!!')).toBeNull()
+    expect(decodeProxyPath('/p/a')).toBeNull()
+    const fileToken = btoa('file:///etc/passwd')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '')
+    expect(decodeProxyPath('/p/' + fileToken)).toBeNull()
   })
 })
 

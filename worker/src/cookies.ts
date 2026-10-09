@@ -54,22 +54,10 @@ function pathMatches(cookiePath: string | undefined, requestPath: string): boole
  * Check if a cookie domain matches a request domain
  */
 function domainMatches(cookieDomain: string | undefined, requestDomain: string): boolean {
-  if (!cookieDomain) return true
-  cookieDomain = cookieDomain.toLowerCase()
+  if (!cookieDomain || !requestDomain) return false
+  cookieDomain = cookieDomain.toLowerCase().replace(/^\./, '')
   requestDomain = requestDomain.toLowerCase()
-
-  // Exact match
-  if (cookieDomain === requestDomain) return true
-
-  // Domain suffix match (e.g., .example.com matches www.example.com)
-  if (cookieDomain.startsWith('.')) {
-    return requestDomain.endsWith(cookieDomain) || requestDomain === cookieDomain.slice(1)
-  }
-
-  // Subdomain match for implicit dot cookies
-  if (requestDomain.endsWith('.' + cookieDomain)) return true
-
-  return false
+  return requestDomain === cookieDomain || requestDomain.endsWith('.' + cookieDomain)
 }
 
 /**
@@ -145,6 +133,11 @@ export function storeCookies(
     const [nameValue] = header.split(';')[0].trim().split('=')
     const cookieName = nameValue.trim()
 
+    if (cookie.domain) {
+      cookie.domain = cookie.domain.toLowerCase().replace(/^\./, '')
+      if (!domainMatches(cookie.domain, domain)) continue
+    }
+
     // Check expiration
     if (cookie.expires && cookie.expires < new Date()) {
       delete cookieStore[domain][cookieName]
@@ -171,10 +164,12 @@ export function getCookies(destinationUrl: string): string {
 
   // Check all stored domains that match
   for (const storedDomain in cookieStore) {
-    if (!domainMatches(storedDomain, domain)) continue
-
     for (const cookieName in cookieStore[storedDomain]) {
       const cookie = cookieStore[storedDomain][cookieName]
+
+      // Domain cookies may be shared with matching subdomains.
+      // Host-only cookies must stay on the exact host that set them.
+      if (cookie.domain ? !domainMatches(cookie.domain, domain) : storedDomain !== domain) continue
 
       // Check expiration
       if (cookie.expires && cookie.expires < new Date()) {
@@ -203,8 +198,24 @@ export function getCookies(destinationUrl: string): string {
  */
 export function clearCookies(destinationUrl: string): void {
   const domain = getDomainFromUrl(destinationUrl)
-  if (domain && cookieStore[domain]) {
-    delete cookieStore[domain]
+  if (!domain) return
+
+  for (const storedDomain of Object.keys(cookieStore)) {
+    const bucket = cookieStore[storedDomain]
+
+    for (const [cookieName, cookie] of Object.entries(bucket)) {
+      const appliesToDestination = cookie.domain
+        ? domainMatches(cookie.domain, domain)
+        : storedDomain === domain
+
+      if (appliesToDestination) {
+        delete bucket[cookieName]
+      }
+    }
+
+    if (Object.keys(bucket).length === 0) {
+      delete cookieStore[storedDomain]
+    }
   }
 }
 

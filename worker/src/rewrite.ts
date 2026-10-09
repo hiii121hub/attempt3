@@ -163,7 +163,7 @@ export function rewriteCss(css: string, destinationUrl: string): string {
   // Rewrite url() in CSS
   result = result.replace(
     /url\(["']?([^"')]+)["']?\)/gi,
-    (match, url) => {
+    (_match, url) => {
       const cleanUrl = url.replace(/^["']|["']$/g, '')
       const rewritten = rewriteUrlToProxy(cleanUrl, destinationUrl)
       return `url("${rewritten}")`
@@ -173,7 +173,7 @@ export function rewriteCss(css: string, destinationUrl: string): string {
   // Rewrite @import
   result = result.replace(
     /@import\s+["']([^"']+)["']/gi,
-    (match, url) => {
+    (_match, url) => {
       const rewritten = rewriteUrlToProxy(url, destinationUrl)
       return `@import "${rewritten}"`
     }

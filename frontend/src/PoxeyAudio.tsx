@@ -2,10 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 
 interface PoxeyAudioProps {
   audioToken: string | null
+  enabled: boolean
+  onEnabledChange: (enabled: boolean) => void
 }
 
-export default function PoxeyAudio({ audioToken }: PoxeyAudioProps) {
-  const [enabled, setEnabled] = useState(false)
+export default function PoxeyAudio({
+  audioToken,
+  enabled,
+  onEnabledChange,
+}: PoxeyAudioProps) {
   const [status, setStatus] = useState('Audio off')
 
   const contextRef = useRef<AudioContext | null>(null)
@@ -13,107 +18,144 @@ export default function PoxeyAudio({ audioToken }: PoxeyAudioProps) {
   const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
-    return () => {
-      socketRef.current?.close()
-      nodeRef.current?.disconnect()
-      contextRef.current?.close()
-    }
-  }, [])
+    if (!enabled) return
 
-  const enableAudio = async () => {
-    try {
-      setStatus('Connecting...')
+    let cancelled = false
+    let context: AudioContext | null = null
+    let node: AudioWorkletNode | null = null
+    let socket: WebSocket | null = null
 
-      const context = new AudioContext({ sampleRate: 44100 })
-      contextRef.current = context
+    const startAudio = async () => {
+      try {
+        setStatus('Connecting...')
 
-      await context.audioWorklet.addModule('/poxey-audio-worklet.js')
+        context = new AudioContext({ sampleRate: 44100 })
 
-      const node = new AudioWorkletNode(context, 'poxey-audio-processor', {
-        numberOfInputs: 0,
-        numberOfOutputs: 1,
-        outputChannelCount: [2],
-      })
-
-      node.connect(context.destination)
-      nodeRef.current = node
-
-      await context.resume()
-
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      if (!audioToken) {
-        throw new Error('Audio session token unavailable')
-      }
-
-      const audioUrl = `${protocol}//${window.location.host}/audio?token=${encodeURIComponent(audioToken)}`
-
-      const socket = new WebSocket(audioUrl)
-      socket.binaryType = 'arraybuffer'
-      socketRef.current = socket
-
-      socket.onopen = () => {
-        setEnabled(true)
-        setStatus('Audio on')
-        console.log('[Poxey Audio] Connected')
-      }
-
-      socket.onmessage = (event) => {
-        if (event.data instanceof ArrayBuffer && nodeRef.current) {
-          nodeRef.current.port.postMessage(event.data, [event.data])
+        if (cancelled) {
+          await context.close()
+          return
         }
-      }
 
-      socket.onerror = () => {
-        setStatus('Audio error')
-        console.error('[Poxey Audio] WebSocket error')
-      }
+        contextRef.current = context
 
-      socket.onclose = () => {
-        setEnabled(false)
-        setStatus('Audio disconnected')
+        await context.audioWorklet.addModule('/poxey-audio-worklet.js')
+
+        if (cancelled) {
+          await context.close()
+          return
+        }
+
+        node = new AudioWorkletNode(context, 'poxey-audio-processor', {
+          numberOfInputs: 0,
+          numberOfOutputs: 1,
+          outputChannelCount: [2],
+        })
+
+        node.connect(context.destination)
+        nodeRef.current = node
+
+        await context.resume()
+
+        if (cancelled) {
+          node.disconnect()
+          await context.close()
+          return
+        }
+
+        if (!audioToken) {
+          throw new Error('Audio session token unavailable')
+        }
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+        const audioUrl = `${protocol}//${window.location.host}/audio?token=${encodeURIComponent(audioToken)}`
+
+        socket = new WebSocket(audioUrl)
+        socket.binaryType = 'arraybuffer'
+        socketRef.current = socket
+
+        socket.onopen = () => {
+          if (cancelled) {
+            socket?.close()
+            return
+          }
+
+          setStatus('Audio on')
+          console.log('[Poxey Audio] Connected')
+        }
+
+        socket.onmessage = (event) => {
+          if (
+            !cancelled &&
+            event.data instanceof ArrayBuffer &&
+            node
+          ) {
+            node.port.postMessage(event.data, [event.data])
+          }
+        }
+
+        socket.onerror = () => {
+          if (cancelled) return
+
+          setStatus('Audio error')
+          console.error('[Poxey Audio] WebSocket error')
+          onEnabledChange(false)
+        }
+
+        socket.onclose = () => {
+          if (cancelled) return
+
+          setStatus('Audio disconnected')
+          onEnabledChange(false)
+        }
+      } catch (error) {
+        if (cancelled) return
+
+        console.error('[Poxey Audio] Failed to start:', error)
+        setStatus('Audio unavailable')
+        onEnabledChange(false)
       }
-    } catch (error) {
-      console.error('[Poxey Audio] Failed to start:', error)
-      setStatus('Audio unavailable')
-      setEnabled(false)
     }
-  }
 
-  const disableAudio = () => {
-    socketRef.current?.close()
-    socketRef.current = null
+    startAudio()
 
-    nodeRef.current?.disconnect()
-    nodeRef.current = null
+    return () => {
+      cancelled = true
 
-    contextRef.current?.close()
-    contextRef.current = null
+      if (socket) {
+        socket.onopen = null
+        socket.onmessage = null
+        socket.onerror = null
+        socket.onclose = null
+        socket.close()
+      }
 
-    setEnabled(false)
-    setStatus('Audio off')
-  }
+      if (node) {
+        node.disconnect()
+      }
 
-  return (
-    <button
-      onClick={enabled ? disableAudio : enableAudio}
-      style={{
-        position: 'fixed',
-        bottom: 16,
-        left: 16,
-        zIndex: 9999,
-        padding: '10px 16px',
-        borderRadius: 10,
-        border: '1px solid rgba(255,255,255,0.15)',
-        background: 'rgba(20, 12, 35, 0.92)',
-        color: '#fff',
-        fontSize: 14,
-        fontWeight: 600,
-        cursor: 'pointer',
-        backdropFilter: 'blur(12px)',
-      }}
-      title={status}
-    >
-      {enabled ? '🔊 Audio On' : '🔇 Enable Audio'}
-    </button>
-  )
+      if (context) {
+        void context.close()
+      }
+
+      if (socketRef.current === socket) {
+        socketRef.current = null
+      }
+
+      if (nodeRef.current === node) {
+        nodeRef.current = null
+      }
+
+      if (contextRef.current === context) {
+        contextRef.current = null
+      }
+    }
+  }, [enabled, audioToken, onEnabledChange])
+
+  useEffect(() => {
+    if (!enabled) {
+      setStatus('Audio off')
+    }
+  }, [enabled])
+
+  return null
 }
