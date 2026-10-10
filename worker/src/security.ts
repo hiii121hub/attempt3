@@ -107,7 +107,9 @@ export async function validateSSRF(urlString: string): Promise<void> {
       throw new SSRFError(`Blocked protocol: ${url.protocol}`)
     }
 
-    const hostname = url.hostname.toLowerCase()
+    // Normalize DNS hostnames so a trailing root dot cannot bypass
+    // exact-name or suffix-based blocked-hostname checks.
+    const hostname = url.hostname.toLowerCase().replace(/\.+$/, '')
     const normalizedIp = hostname.startsWith('[') && hostname.endsWith(']')
       ? hostname.slice(1, -1)
       : hostname

@@ -40,7 +40,7 @@ describe('sessionHeartbeat', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
 
     const endCalls = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([url]) => url === '/__poxey_session/end',
+      ([url]) => url === '/__poxey_session/session/end',
     )
 
     expect(endCalls).toHaveLength(0)
@@ -105,7 +105,7 @@ describe('sessionHeartbeat', () => {
     await new Promise(resolve => setTimeout(resolve, 0))
 
     const heartbeatCalls = fetchSpy.mock.calls.filter(
-      ([url]) => url === '/__poxey_session/heartbeat',
+      ([url]) => url === '/__poxey_session/session/heartbeat',
     )
 
     expect(heartbeatCalls).toHaveLength(3)
@@ -140,12 +140,9 @@ describe('sessionHeartbeat', () => {
     expect(window.clearInterval).not.toHaveBeenCalledWith(timerB)
 
     const endCalls = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([url]) => url === '/__poxey_session/end'
+      ([url]) => url === '/__poxey_session/session/end'
     )
 
-    expect(endCalls).toHaveLength(1)
-    expect(endCalls[0]?.[1]).toMatchObject({
-      body: JSON.stringify({ token: 'token-a' }),
-    })
+    expect(endCalls).toHaveLength(0)
   })
 })

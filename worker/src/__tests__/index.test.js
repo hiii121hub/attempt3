@@ -112,3 +112,45 @@ describe('Proxy destination header security', () => {
   });
 
 });
+
+describe('Proxy redirect security', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('blocks redirects to localhost', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, {
+        status: 302,
+        headers: { Location: 'http://127.0.0.1/admin' },
+      }),
+    );
+
+    const request = new Request(
+      `https://proxy.test${encodeProxyPath('https://example.com/')}`,
+    );
+
+    const response = await worker.fetch(request);
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain('Invalid redirect target');
+  });
+
+  it('blocks redirects using unsafe protocols', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, {
+        status: 302,
+        headers: { Location: 'javascript:alert(1)' },
+      }),
+    );
+
+    const request = new Request(
+      `https://proxy.test${encodeProxyPath('https://example.com/')}`,
+    );
+
+    const response = await worker.fetch(request);
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain('Invalid redirect target');
+  });
+});

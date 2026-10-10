@@ -60,3 +60,17 @@ describe('SSRF Protection', () => {
     await expect(validateSSRF('https://[2001:4860:4860::8888]')).resolves.not.toThrow()
   })
 })
+
+describe('Hostname normalization', () => {
+  it('blocks localhost with a trailing dot', async () => {
+    await expect(validateSSRF('http://localhost./')).rejects.toThrow(SSRFError)
+  })
+
+  it('blocks localhost subdomains with a trailing dot', async () => {
+    await expect(validateSSRF('http://service.localhost./')).rejects.toThrow(SSRFError)
+  })
+
+  it('blocks local domains with a trailing dot', async () => {
+    await expect(validateSSRF('http://printer.local./')).rejects.toThrow(SSRFError)
+  })
+})
