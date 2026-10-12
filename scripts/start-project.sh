@@ -3,6 +3,24 @@ set -e
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+ensure_pulseaudio() {
+  if ! command -v pulseaudio >/dev/null || ! command -v pactl >/dev/null; then
+    echo "[Poxey Audio] PulseAudio tools are required but unavailable." >&2
+    exit 1
+  fi
+
+  if ! pactl info >/dev/null 2>&1; then
+    pulseaudio --start --exit-idle-time=-1
+  fi
+
+  if ! pactl info >/dev/null 2>&1; then
+    echo "[Poxey Audio] PulseAudio did not become available." >&2
+    exit 1
+  fi
+}
+
+ensure_pulseaudio
+
 start_session_manager() {
   while true; do
     echo "[Poxey Supervisor] Starting session manager..."
