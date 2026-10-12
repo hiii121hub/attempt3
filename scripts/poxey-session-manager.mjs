@@ -37,6 +37,17 @@ const FREE_COOKIE_SECRET_FILE = path.join(TOKEN_DIR, 'poxey-free-cookie.secret')
 fs.mkdirSync(TOKEN_DIR, { recursive: true, mode: 0o700 })
 fs.chmodSync(TOKEN_DIR, 0o700)
 
+async function waitForFile(filePath, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    if (fs.existsSync(filePath)) return true
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+
+  return false
+}
+
 async function waitForTcpPort(port, timeoutMs = 10000) {
   const started = Date.now()
 
@@ -658,18 +669,62 @@ async function createSession(req, res) {
       }
     }
 
-    const runtimeDir =
-      process.env.XDG_RUNTIME_DIR || `/tmp/runtime-${process.getuid?.() ?? 1000}`
+    const audioRuntimeDir = path.join(dir, 'runtime')
+    const pulseRuntimePath = path.join(audioRuntimeDir, 'pulse')
+    const audioSink = `poxey_${id.replaceAll('-', '_')}`
 
-    const pulseRuntimePath = path.join(runtimeDir, 'pulse')
-    fs.mkdirSync(pulseRuntimePath, { recursive: true })
+    fs.mkdirSync(audioRuntimeDir, { recursive: true, mode: 0o700 })
+    fs.chmodSync(audioRuntimeDir, 0o700)
+
+    const audioEnv = {
+      XDG_RUNTIME_DIR: audioRuntimeDir,
+      PULSE_RUNTIME_PATH: pulseRuntimePath,
+      PULSE_SERVER: `unix:${pulseRuntimePath}/native`,
+      PULSE_SINK: audioSink,
+    }
+
+    const pulse = spawnLogged(
+      'pulseaudio',
+      ['--daemonize=no', '--exit-idle-time=-1', '--log-target=stderr'],
+      audioEnv,
+      path.join(logDir, 'pulseaudio.log'),
+    )
+
+    const pulseReady = await waitForFile(path.join(pulseRuntimePath, 'native'))
+
+    if (!pulseReady || !isAlive(pulse)) {
+      await cleanupStartupFailure(dir, [pulse, xvfb])
+      return {
+        error: 'AUDIO_SERVER_FAILED',
+        message: 'Failed to start the session audio server.',
+      }
+    }
+
+    const nullSink = spawnSync(
+      'pactl',
+      [
+        'load-module',
+        'module-null-sink',
+        `sink_name=${audioSink}`,
+        'sink_properties=device.description=Poxey',
+      ],
+      {
+        env: { ...process.env, ...audioEnv },
+        encoding: 'utf8',
+      },
+    )
+
+    if (nullSink.status !== 0) {
+      await cleanupStartupFailure(dir, [pulse, xvfb])
+      return {
+        error: 'AUDIO_SINK_FAILED',
+        message: 'Failed to configure the session audio stream.',
+      }
+    }
 
     const chromeEnv = {
       DISPLAY: displayName,
-      XDG_RUNTIME_DIR: runtimeDir,
-      PULSE_RUNTIME_PATH: pulseRuntimePath,
-      PULSE_SERVER: `unix:${pulseRuntimePath}/native`,
-      PULSE_SINK: 'poxey_output',
+      ...audioEnv,
     }
 
     const chrome = spawnLogged(
@@ -694,7 +749,7 @@ async function createSession(req, res) {
 
     if (!isAlive(chrome)) {
       killProcessTree(chrome, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
+      await cleanupStartupFailure(dir, [pulse, xvfb])
       return {
         error: 'CHROME_FAILED',
         message: 'Failed to start Chrome.',
@@ -705,7 +760,7 @@ async function createSession(req, res) {
 
     if (!chromeWindowId) {
       killProcessTree(chrome, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
+      await cleanupStartupFailure(dir, [pulse, xvfb])
       return {
         error: 'CHROME_WINDOW_NOT_FOUND',
         message: 'Chrome started, but its window could not be detected.',
@@ -740,7 +795,7 @@ async function createSession(req, res) {
       )
     } catch (error) {
       killProcessTree(chrome, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
+      await cleanupStartupFailure(dir, [pulse, xvfb])
       return {
         error: 'CHROME_RESIZE_FAILED',
         message: error instanceof Error ? error.message : String(error),
@@ -781,7 +836,7 @@ async function createSession(req, res) {
 
       console.error(`[Poxey Session] X11VNC_FAILED_LOG\n${x11vncLog}`)
 
-      await cleanupStartupFailure(dir, [chrome, xvfb, x11vnc])
+      await cleanupStartupFailure(dir, [chrome, pulse, xvfb, x11vnc])
       return {
         error: 'VNC_FAILED',
         message: 'Failed to start x11vnc.',
@@ -793,7 +848,7 @@ async function createSession(req, res) {
     if (!vncReady) {
       killProcessTree(chrome, 'SIGTERM')
       killProcessTree(x11vnc, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
+      await cleanupStartupFailure(dir, [pulse, xvfb])
       return {
         error: 'VNC_NOT_READY',
         message: 'VNC server did not become ready.',
@@ -807,9 +862,14 @@ async function createSession(req, res) {
       vncPort,
       dir,
       profile,
+      logDir,
       xvfb,
       x11vnc,
       chrome,
+      pulse,
+      audioEnv,
+      audioSink,
+      audioCaptures: new Set(),
       chromeWindowId,
       width: BASE_WIDTH,
       height: BASE_HEIGHT,
@@ -843,6 +903,7 @@ async function createSession(req, res) {
     watchProcess('chrome', chrome)
     watchProcess('x11vnc', x11vnc)
     watchProcess('xvfb', xvfb)
+    watchProcess('pulseaudio', pulse)
 
     writeTokenFile()
 
@@ -892,14 +953,18 @@ function cleanupSession(session, reason = 'cleanup') {
 
   console.log(`[Poxey Session] Cleaning ${session.id}: ${reason}`)
 
-  for (const child of [session.chrome, session.x11vnc, session.xvfb]) {
+  for (const capture of session.audioCaptures) {
+    killProcessTree(capture, 'SIGTERM')
+  }
+
+  for (const child of [session.chrome, session.x11vnc, session.xvfb, session.pulse]) {
     if (isAlive(child)) {
       child.kill('SIGTERM')
     }
   }
 
   setTimeout(() => {
-    for (const child of [session.chrome, session.x11vnc, session.xvfb]) {
+    for (const child of [session.chrome, session.x11vnc, session.xvfb, session.pulse]) {
       if (isAlive(child)) {
         child.kill('SIGKILL')
       }
@@ -955,6 +1020,7 @@ function parseBody(req) {
 }
 
 const vncProxy = new WebSocketServer({ noServer: true })
+const audioProxy = new WebSocketServer({ noServer: true })
 
 vncProxy.on('connection', (client, session) => {
   const upstream = net.createConnection({
@@ -981,6 +1047,53 @@ vncProxy.on('connection', (client, session) => {
   client.on('error', closeBoth)
   upstream.on('close', closeBoth)
   upstream.on('error', closeBoth)
+})
+
+audioProxy.on('connection', (client, session) => {
+  const log = fs.openSync(path.join(session.logDir, 'audio-capture.log'), 'a')
+  const capture = spawn(
+    'ffmpeg',
+    [
+      '-nostdin',
+      '-loglevel',
+      'error',
+      '-f',
+      'pulse',
+      '-i',
+      `${session.audioSink}.monitor`,
+      '-ac',
+      '2',
+      '-ar',
+      '44100',
+      '-f',
+      's16le',
+      'pipe:1',
+    ],
+    {
+      env: { ...process.env, ...session.audioEnv },
+      stdio: ['ignore', 'pipe', log],
+    },
+  )
+
+  session.audioCaptures.add(capture)
+
+  const closeCapture = () => {
+    session.audioCaptures.delete(capture)
+    if (isAlive(capture)) killProcessTree(capture, 'SIGTERM')
+  }
+
+  capture.stdout.on('data', data => {
+    if (client.readyState === 1) client.send(data, { binary: true })
+  })
+
+  capture.on('exit', () => {
+    session.audioCaptures.delete(capture)
+    fs.closeSync(log)
+    if (client.readyState === 1) client.close()
+  })
+
+  client.on('close', closeCapture)
+  client.on('error', closeCapture)
 })
 
 const server = http.createServer(async (req, res) => {
@@ -1177,11 +1290,6 @@ server.on('upgrade', (req, socket, head) => {
   try {
     const requestUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`)
 
-    if (requestUrl.pathname !== '/websockify') {
-      socket.destroy()
-      return
-    }
-
     const authToken = requestUrl.searchParams.get('token')
     const session = findByToken(authToken || '')
 
@@ -1190,9 +1298,21 @@ server.on('upgrade', (req, socket, head) => {
       return
     }
 
-    vncProxy.handleUpgrade(req, socket, head, client => {
-      vncProxy.emit('connection', client, session)
-    })
+    if (requestUrl.pathname === '/websockify') {
+      vncProxy.handleUpgrade(req, socket, head, client => {
+        vncProxy.emit('connection', client, session)
+      })
+      return
+    }
+
+    if (requestUrl.pathname === '/audio') {
+      audioProxy.handleUpgrade(req, socket, head, client => {
+        audioProxy.emit('connection', client, session)
+      })
+      return
+    }
+
+    socket.destroy()
   } catch {
     socket.destroy()
   }
