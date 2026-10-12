@@ -16,6 +16,10 @@ export default defineConfig({
         target: 'ws://localhost:6080',
         ws: true,
       },
+      '/audio': {
+        target: 'ws://localhost:3997',
+        ws: true,
+      },
       '/vnc.html': 'http://localhost:6080',
       '/app': 'http://localhost:6080',
       '/vendor': 'http://localhost:6080',
