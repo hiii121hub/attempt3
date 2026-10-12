@@ -23,6 +23,37 @@ const FREE_ALLOWANCE_WINDOW_MS = 24 * 60 * 60 * 1000
 const FREE_DEVICE_COOKIE = 'poxey-free-id'
 const FREE_DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
+// Each Chrome session gets its own PulseAudio null sink and monitor.
+function pulseEnvironment() {
+  const runtimeDir = process.env.XDG_RUNTIME_DIR || `/tmp/runtime-${process.getuid?.() ?? 1000}`
+  return {
+    ...process.env,
+    XDG_RUNTIME_DIR: runtimeDir,
+    PULSE_SERVER: process.env.PULSE_SERVER || `unix:${runtimeDir}/pulse/native`,
+  }
+}
+
+function createAudioSink(id) {
+  const name = `poxey_${id.replace(/-/g, '_')}`
+  const result = spawnSync('pactl', [
+    'load-module', 'module-null-sink',
+    `sink_name=${name}`,
+    'rate=44100', 'channels=2',
+  ], { env: pulseEnvironment(), encoding: 'utf8', timeout: 5000 })
+  if (result.status !== 0) {
+    console.warn('[Poxey Audio] Sink creation failed:', result.error?.message || result.stderr?.trim())
+    return { name: null, moduleId: null }
+  }
+  const moduleId = result.stdout.trim()
+  return /^\d+$/.test(moduleId) ? { name, moduleId } : { name: null, moduleId: null }
+}
+
+function removeAudioSink(moduleId) {
+  if (moduleId) spawnSync('pactl', ['unload-module', moduleId], {
+    env: pulseEnvironment(), timeout: 5000,
+  })
+}
+
 const sessions = new Map()
 const startingFreeDevices = new Set()
 let sessionCreationLock = false
@@ -664,12 +695,14 @@ async function createSession(req, res) {
     const pulseRuntimePath = path.join(runtimeDir, 'pulse')
     fs.mkdirSync(pulseRuntimePath, { recursive: true })
 
+    const audioSink = createAudioSink(id)
+
     const chromeEnv = {
       DISPLAY: displayName,
       XDG_RUNTIME_DIR: runtimeDir,
       PULSE_RUNTIME_PATH: pulseRuntimePath,
       PULSE_SERVER: `unix:${pulseRuntimePath}/native`,
-      PULSE_SINK: 'poxey_output',
+      ...(audioSink.name ? { PULSE_SINK: audioSink.name } : {}),
     }
 
     const chrome = spawnLogged(
@@ -694,6 +727,7 @@ async function createSession(req, res) {
 
     if (!isAlive(chrome)) {
       killProcessTree(chrome, 'SIGTERM')
+      removeAudioSink(audioSink.moduleId)
       await cleanupStartupFailure(dir, [xvfb])
       return {
         error: 'CHROME_FAILED',
@@ -811,6 +845,8 @@ async function createSession(req, res) {
       x11vnc,
       chrome,
       chromeWindowId,
+      audioSink,
+      audioClients: new Set(),
       width: BASE_WIDTH,
       height: BASE_HEIGHT,
       deviceId,
@@ -886,6 +922,8 @@ function cleanupSession(session, reason = 'cleanup') {
 
   session.cleaningUp = true
   sessions.delete(session.id)
+  for (const client of session.audioClients || []) client.close()
+  removeAudioSink(session.audioSink?.moduleId)
   writeTokenFile()
 
   chargeSessionUsage(session, Date.now())
@@ -953,6 +991,44 @@ function parseBody(req) {
     })
   })
 }
+
+const audioProxy = new WebSocketServer({ noServer: true })
+
+audioProxy.on('connection', (client, session) => {
+  if (!session.audioSink?.name || session.cleaningUp) {
+    client.close(1011, 'Audio unavailable')
+    return
+  }
+
+  const capture = spawn('ffmpeg', [
+    '-hide_banner', '-loglevel', 'warning',
+    '-f', 'pulse', '-i', `${session.audioSink.name}.monitor`,
+    '-ac', '2', '-ar', '44100', '-f', 's16le', 'pipe:1',
+  ], { env: pulseEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] })
+
+  session.audioClients.add(client)
+  capture.stdout.on('data', chunk => {
+    if (client.readyState === 1 && client.bufferedAmount < 1024 * 1024) {
+      client.send(chunk, { binary: true })
+    }
+  })
+  capture.stderr.on('data', chunk => {
+    console.warn('[Poxey Audio]', chunk.toString().trim())
+  })
+  capture.on('error', error => {
+    console.error('[Poxey Audio] Capture failed:', error.message)
+    if (client.readyState === 1) client.close(1011, 'Capture failed')
+  })
+  capture.on('exit', () => {
+    if (client.readyState === 1) client.close(1011, 'Capture ended')
+  })
+  const stop = () => {
+    session.audioClients.delete(client)
+    if (capture.exitCode === null) capture.kill('SIGTERM')
+  }
+  client.on('close', stop)
+  client.on('error', stop)
+})
 
 const vncProxy = new WebSocketServer({ noServer: true })
 
@@ -1177,7 +1253,7 @@ server.on('upgrade', (req, socket, head) => {
   try {
     const requestUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`)
 
-    if (requestUrl.pathname !== '/websockify') {
+    if (requestUrl.pathname !== '/websockify' && requestUrl.pathname !== '/audio') {
       socket.destroy()
       return
     }
@@ -1190,9 +1266,15 @@ server.on('upgrade', (req, socket, head) => {
       return
     }
 
-    vncProxy.handleUpgrade(req, socket, head, client => {
-      vncProxy.emit('connection', client, session)
-    })
+    if (requestUrl.pathname === '/audio') {
+      audioProxy.handleUpgrade(req, socket, head, client => {
+        audioProxy.emit('connection', client, session)
+      })
+    } else {
+      vncProxy.handleUpgrade(req, socket, head, client => {
+        vncProxy.emit('connection', client, session)
+      })
+    }
   } catch {
     socket.destroy()
   }
