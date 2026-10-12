@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import './App.css';
 import VNCViewer from './components/VNCViewer';
 import PoxeyAudio from './PoxeyAudio';
@@ -27,6 +27,10 @@ export function App() {
   const [endingSession, setEndingSession] = useState(false);
   const [error, setError] = useState('');
   const [sessionRemainingMs, setSessionRemainingMs] = useState(0);
+
+  const handleAudioEnabledChange = useCallback((enabled: boolean) => {
+    setAudioMuted(!enabled);
+  }, []);
 
   useEffect(() => {
     if (!sessionActive || !sessionToken) return;
@@ -196,7 +200,7 @@ export function App() {
             <PoxeyAudio
               audioToken={sessionToken}
               enabled={!audioMuted}
-              onEnabledChange={(enabled) => setAudioMuted(!enabled)}
+              onEnabledChange={handleAudioEnabledChange}
             />
           </div>
         </div>
