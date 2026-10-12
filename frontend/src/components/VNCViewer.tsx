@@ -544,7 +544,7 @@ const VNCViewer = forwardRef<VNCViewerHandle, VNCViewerProps>(
         <div
           ref={targetRef}
           className="vnc-target"
-          onTouchStart={focusMobileKeyboard}
+          onClick={focusMobileKeyboard}
           style={{
             width: '1024px',
             height: '768px',
