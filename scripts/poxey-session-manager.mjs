@@ -25,12 +25,16 @@ const FREE_DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
 // Each Chrome session gets its own PulseAudio null sink and monitor.
 function pulseEnvironment() {
-  const runtimeDir = process.env.XDG_RUNTIME_DIR || `/tmp/runtime-${process.getuid?.() ?? 1000}`
-  return {
-    ...process.env,
-    XDG_RUNTIME_DIR: runtimeDir,
-    PULSE_SERVER: process.env.PULSE_SERVER || `unix:${runtimeDir}/pulse/native`,
+  // Let PulseAudio discover its active server unless deployment explicitly
+  // supplies a server address. This keeps pactl, FFmpeg, and Chrome aligned.
+  const env = { ...process.env }
+
+  if (!process.env.PULSE_SERVER) {
+    delete env.PULSE_SERVER
   }
+
+  delete env.PULSE_RUNTIME_PATH
+  return env
 }
 
 function createAudioSink(id) {
@@ -689,19 +693,11 @@ async function createSession(req, res) {
       }
     }
 
-    const runtimeDir =
-      process.env.XDG_RUNTIME_DIR || `/tmp/runtime-${process.getuid?.() ?? 1000}`
-
-    const pulseRuntimePath = path.join(runtimeDir, 'pulse')
-    fs.mkdirSync(pulseRuntimePath, { recursive: true })
-
     const audioSink = createAudioSink(id)
 
     const chromeEnv = {
+      ...pulseEnvironment(),
       DISPLAY: displayName,
-      XDG_RUNTIME_DIR: runtimeDir,
-      PULSE_RUNTIME_PATH: pulseRuntimePath,
-      PULSE_SERVER: `unix:${pulseRuntimePath}/native`,
       ...(audioSink.name ? { PULSE_SINK: audioSink.name } : {}),
     }
 
