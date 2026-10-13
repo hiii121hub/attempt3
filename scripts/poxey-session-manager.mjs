@@ -6,6 +6,7 @@ import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { WebSocketServer } from 'ws'
 import { readRuntimeConfig, requestAllowed, sessionUsable, childEnvironment, chromeSandboxArgs, websocketAllowed, parseSessionBody, decodeCookie } from './security-policy.mjs'
+import { startupResources } from './startup-resources.mjs'
 
 const runtimeConfig = readRuntimeConfig()
 
@@ -411,12 +412,19 @@ function freeNumber(start, used) {
 
 function spawnLogged(command, args, env, logFile) {
   const log = fs.openSync(logFile, 'a')
-  const child = spawn(command, args, {
-    env: { ...childEnvironment(process.env, runtimeConfig.production), ...env },
-    stdio: ['ignore', log, log],
-    detached: false,
-  })
-  child.on('exit', () => fs.closeSync(log))
+  let child
+  try {
+    child = spawn(command, args, {
+      env: { ...childEnvironment(process.env, runtimeConfig.production), ...env },
+      stdio: ['ignore', log, log],
+      detached: false,
+    })
+  } catch (error) {
+    fs.closeSync(log)
+    throw error
+  }
+  child.on('error', error => console.error(`[Poxey Session] Failed to spawn ${command}: ${error.message}`))
+  child.once('close', () => fs.closeSync(log))
   return child
 }
 
@@ -659,6 +667,13 @@ async function createSession(req, res) {
   saveFreeAllowance(deviceId, allowance)
   startingFreeDevices.add(deviceId)
 
+  const startup = startupResources({
+    killTree: killProcessTree,
+    isAlive,
+    removeSink: removeAudioSink,
+    removeDirectory: dir => fs.rmSync(dir, { recursive: true, force: true }),
+    wait: ms => new Promise(resolve => setTimeout(resolve, ms)),
+  })
   try {
     const display = freeNumber(DISPLAY_START, usedDisplays())
 
@@ -675,6 +690,7 @@ async function createSession(req, res) {
     const authToken = token()
 
     const dir = path.join(BASE_DIR, id)
+    startup.directory(dir)
     const profile = path.join(dir, 'profile')
     const logDir = path.join(dir, 'logs')
 
@@ -687,7 +703,7 @@ async function createSession(req, res) {
 
     const displayName = `:${display}`
 
-    const xvfb = spawnLogged(
+    const xvfb = startup.child(spawnLogged(
       'Xvfb',
       [
         displayName,
@@ -699,19 +715,18 @@ async function createSession(req, res) {
       ],
       {},
       path.join(logDir, 'xvfb.log'),
-    )
+    ))
 
     await new Promise(r => setTimeout(r, 1000))
 
     if (!isAlive(xvfb)) {
-      await cleanupStartupFailure(dir, [xvfb])
       return {
         error: 'XVFB_FAILED',
         message: 'Failed to start Xvfb.',
       }
     }
 
-    const audioSink = createAudioSink(id)
+    const audioSink = startup.sink(createAudioSink(id))
 
     const chromeEnv = {
       ...pulseEnvironment(),
@@ -719,7 +734,7 @@ async function createSession(req, res) {
       ...(audioSink.name ? { PULSE_SINK: audioSink.name } : {}),
     }
 
-    const chrome = spawnLogged(
+    const chrome = startup.child(spawnLogged(
       '/usr/bin/google-chrome',
       [
         '--disable-gpu',
@@ -735,14 +750,11 @@ async function createSession(req, res) {
       ],
       chromeEnv,
       path.join(logDir, 'chrome.log'),
-    )
+    ))
 
     await new Promise(r => setTimeout(r, 2000))
 
     if (!isAlive(chrome)) {
-      killProcessTree(chrome, 'SIGTERM')
-      removeAudioSink(audioSink.moduleId)
-      await cleanupStartupFailure(dir, [xvfb])
       return {
         error: 'CHROME_FAILED',
         message: 'Failed to start Chrome.',
@@ -752,8 +764,6 @@ async function createSession(req, res) {
     const chromeWindowId = findChromeWindowId(displayName)
 
     if (!chromeWindowId) {
-      killProcessTree(chrome, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
       return {
         error: 'CHROME_WINDOW_NOT_FOUND',
         message: 'Chrome started, but its window could not be detected.',
@@ -787,15 +797,13 @@ async function createSession(req, res) {
         }
       )
     } catch (error) {
-      killProcessTree(chrome, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
       return {
         error: 'CHROME_RESIZE_FAILED',
         message: error instanceof Error ? error.message : String(error),
       }
     }
 
-    const x11vnc = spawnLogged(
+    const x11vnc = startup.child(spawnLogged(
       'x11vnc',
       [
         '-display',
@@ -815,7 +823,7 @@ async function createSession(req, res) {
       ],
       {},
       path.join(logDir, 'x11vnc.log'),
-    )
+    ))
 
     await new Promise(r => setTimeout(r, 1000))
 
@@ -829,7 +837,6 @@ async function createSession(req, res) {
 
       console.error(`[Poxey Session] X11VNC_FAILED_LOG\n${x11vncLog}`)
 
-      await cleanupStartupFailure(dir, [chrome, xvfb, x11vnc])
       return {
         error: 'VNC_FAILED',
         message: 'Failed to start x11vnc.',
@@ -839,9 +846,6 @@ async function createSession(req, res) {
     const vncReady = await waitForTcpPort(vncPort)
 
     if (!vncReady) {
-      killProcessTree(chrome, 'SIGTERM')
-      killProcessTree(x11vnc, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
       return {
         error: 'VNC_NOT_READY',
         message: 'VNC server did not become ready.',
@@ -895,7 +899,13 @@ async function createSession(req, res) {
     watchProcess('x11vnc', x11vnc)
     watchProcess('xvfb', xvfb)
 
-    writeTokenFile()
+    try {
+      writeTokenFile()
+    } catch (error) {
+      sessions.delete(id)
+      throw error
+    }
+    startup.commit()
 
     return {
       id,
@@ -907,29 +917,11 @@ async function createSession(req, res) {
       remainingMs: allowance.remainingMs,
     }
   } finally {
-    startingFreeDevices.delete(deviceId)
+    try { await startup.rollback() } finally { startingFreeDevices.delete(deviceId) }
   }
   } finally {
     sessionCreationLock = false
   }
-}
-
-async function cleanupStartupFailure(dir, children) {
-  for (const child of children) {
-    killProcessTree(child, 'SIGTERM')
-  }
-
-  await new Promise(resolve => setTimeout(resolve, 1500))
-
-  for (const child of children) {
-    if (isAlive(child)) {
-      killProcessTree(child, 'SIGKILL')
-    }
-  }
-
-  await new Promise(resolve => setTimeout(resolve, 250))
-
-  fs.rmSync(dir, { recursive: true, force: true })
 }
 
 function cleanupSession(session, reason = 'cleanup') {
