@@ -5,13 +5,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { WebSocketServer } from 'ws'
+import { readRuntimeConfig, requestAllowed, sessionUsable, childEnvironment, chromeSandboxArgs, websocketAllowed, parseSessionBody, decodeCookie } from './security-policy.mjs'
+
+const runtimeConfig = readRuntimeConfig()
 
 const HOST = '127.0.0.1'
 const PORT = 3997
 const BASE_DIR = '/tmp/poxey-sessions'
 const DISPLAY_START = 2
 const VNC_PORT_START = 5902
-const MAX_SESSIONS = 100
+const MAX_SESSIONS = runtimeConfig.maxSessions
 const BASE_WIDTH = 1024
 const BASE_HEIGHT = 700
 const MIN_SIZE_PERCENT = 75
@@ -27,7 +30,7 @@ const FREE_DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 function pulseEnvironment() {
   // Let PulseAudio discover its active server unless deployment explicitly
   // supplies a server address. This keeps pactl, FFmpeg, and Chrome aligned.
-  const env = { ...process.env }
+  const env = childEnvironment(process.env, runtimeConfig.production)
 
   if (!process.env.PULSE_SERVER) {
     delete env.PULSE_SERVER
@@ -64,7 +67,7 @@ let sessionCreationLock = false
 
 fs.mkdirSync(BASE_DIR, { recursive: true, mode: 0o700 })
 fs.chmodSync(BASE_DIR, 0o700)
-const TOKEN_DIR = path.join(BASE_DIR, 'tokens')
+const TOKEN_DIR = runtimeConfig.stateDir
 const TOKEN_FILE = path.join(TOKEN_DIR, 'poxey.tokens')
 const FREE_USAGE_FILE = path.join(TOKEN_DIR, 'poxey-free-usage.json')
 const FREE_COOKIE_SECRET_FILE = path.join(TOKEN_DIR, 'poxey-free-cookie.secret')
@@ -102,7 +105,7 @@ async function waitForTcpPort(port, timeoutMs = 10000) {
 
 function findChromeWindowId(display) {
   const env = {
-    ...process.env,
+    ...childEnvironment(process.env, runtimeConfig.production),
     DISPLAY: display,
   }
 
@@ -144,7 +147,7 @@ async function resizeChromeWindow(session, width, height) {
     ],
     {
       env: {
-        ...process.env,
+        ...childEnvironment(process.env, runtimeConfig.production),
         DISPLAY: String(session.display).startsWith(':') ? String(session.display) : `:${session.display}`,
       },
       encoding: 'utf8',
@@ -260,7 +263,7 @@ function getCookie(req, name) {
     const value = part.slice(separator + 1).trim()
 
     if (key === name) {
-      return decodeURIComponent(value)
+      return decodeCookie(value)
     }
   }
 
@@ -282,7 +285,7 @@ function getOrCreateFreeDevice(req, res) {
   const deviceId = crypto.randomUUID()
   const value = createFreeDeviceCookieValue(deviceId)
   const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-  const secure = forwardedProto === 'https'
+  const secure = runtimeConfig.production || forwardedProto === 'https'
 
   const cookie = [
     `${FREE_DEVICE_COOKIE}=${encodeURIComponent(value)}`,
@@ -310,11 +313,13 @@ function loadFreeUsage() {
     const data = JSON.parse(fs.readFileSync(FREE_USAGE_FILE, 'utf8'))
 
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      if (runtimeConfig.production) throw new Error('Invalid usage ledger')
       return {}
     }
 
     return data
-  } catch {
+  } catch (error) {
+    if (runtimeConfig.production) throw new Error('Usage ledger unavailable; refusing to reset allowances', { cause: error })
     return {}
   }
 }
@@ -407,7 +412,7 @@ function freeNumber(start, used) {
 function spawnLogged(command, args, env, logFile) {
   const log = fs.openSync(logFile, 'a')
   const child = spawn(command, args, {
-    env: { ...process.env, ...env },
+    env: { ...childEnvironment(process.env, runtimeConfig.production), ...env },
     stdio: ['ignore', log, log],
     detached: false,
   })
@@ -569,10 +574,23 @@ function isPortAvailable(port, host = HOST) {
 }
 
 function findByToken(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value)) return null
   for (const session of sessions.values()) {
-    if (session.token === value) return session
+    if (session.token === value) {
+      if (!sessionUsable(session)) {
+        cleanupSession(session, 'expired token rejected')
+        return null
+      }
+      return session
+    }
   }
   return null
+}
+
+function authorizedSession(req, value) {
+  const session = findByToken(value)
+  if (runtimeConfig.production && session?.deviceId !== verifyFreeDeviceCookieValue(getCookie(req, FREE_DEVICE_COOKIE))) return null
+  return session
 }
 
 async function createSession(req, res) {
@@ -708,7 +726,7 @@ async function createSession(req, res) {
         '--num-raster-threads=2',
         '--use-pulseaudio',
         '--disable-features=AudioServiceOutOfProcess',
-        '--no-sandbox',
+        ...chromeSandboxArgs(runtimeConfig),
         `--user-data-dir=${profile}`,
         '--no-first-run',
         '--no-default-browser-check',
@@ -762,7 +780,7 @@ async function createSession(req, res) {
         ],
         {
           env: {
-            ...process.env,
+            ...childEnvironment(process.env, runtimeConfig.production),
             DISPLAY: displayName,
           },
           encoding: 'utf8',
@@ -843,6 +861,7 @@ async function createSession(req, res) {
       chromeWindowId,
       audioSink,
       audioClients: new Set(),
+      vncClients: new Set(),
       width: BASE_WIDTH,
       height: BASE_HEIGHT,
       deviceId,
@@ -919,6 +938,7 @@ function cleanupSession(session, reason = 'cleanup') {
   session.cleaningUp = true
   sessions.delete(session.id)
   for (const client of session.audioClients || []) client.close()
+  for (const client of session.vncClients || []) client.close()
   removeAudioSink(session.audioSink?.moduleId)
   writeTokenFile()
 
@@ -979,7 +999,7 @@ function parseBody(req) {
 
       try {
         settled = true
-        resolve(body ? JSON.parse(body) : {})
+        resolve(parseSessionBody(body))
       } catch {
         settled = true
         reject(new Error('INVALID_JSON'))
@@ -988,7 +1008,8 @@ function parseBody(req) {
   })
 }
 
-const audioProxy = new WebSocketServer({ noServer: true })
+const wsOptions = { noServer: true, ...(runtimeConfig.production ? { maxPayload: 1024 * 1024 } : {}) }
+const audioProxy = new WebSocketServer(wsOptions)
 
 audioProxy.on('connection', (client, session) => {
   if (!session.audioSink?.name || session.cleaningUp) {
@@ -1026,9 +1047,10 @@ audioProxy.on('connection', (client, session) => {
   client.on('error', stop)
 })
 
-const vncProxy = new WebSocketServer({ noServer: true })
+const vncProxy = new WebSocketServer(wsOptions)
 
 vncProxy.on('connection', (client, session) => {
+  session.vncClients.add(client)
   const upstream = net.createConnection({
     host: '127.0.0.1',
     port: session.vncPort,
@@ -1045,6 +1067,7 @@ vncProxy.on('connection', (client, session) => {
   })
 
   const closeBoth = () => {
+    session.vncClients.delete(client)
     if (!upstream.destroyed) upstream.destroy()
     if (client.readyState === 1) client.close()
   }
@@ -1056,6 +1079,9 @@ vncProxy.on('connection', (client, session) => {
 })
 
 const server = http.createServer(async (req, res) => {
+  if (req.method !== 'GET' && !requestAllowed(req, runtimeConfig)) {
+    return json(res, 403, { error: 'ORIGIN_REJECTED' })
+  }
   if (req.method === 'GET' && req.url === '/health') {
     return json(res, 200, {
       ok: true,
@@ -1092,7 +1118,7 @@ const server = http.createServer(async (req, res) => {
 
       return json(res, 500, {
         error: 'SESSION_CREATE_FAILED',
-        message: error instanceof Error ? error.message : String(error),
+        message: runtimeConfig.production ? 'Session could not be started.' : error instanceof Error ? error.message : String(error),
       })
     }
   }
@@ -1109,7 +1135,7 @@ const server = http.createServer(async (req, res) => {
       })
     }
 
-    const session = findByToken(body.token)
+    const session = authorizedSession(req, body.token)
 
     if (!session) {
       return json(res, 401, { error: 'INVALID_SESSION' })
@@ -1160,7 +1186,7 @@ if (req.method === 'POST' && req.url === '/session/heartbeat') {
       })
     }
 
-    const session = findByToken(body.token)
+    const session = authorizedSession(req, body.token)
 
     if (!session) {
       return json(res, 401, {
@@ -1210,7 +1236,7 @@ if (req.method === 'POST' && req.url === '/session/heartbeat') {
       })
     }
 
-    const session = findByToken(body.token)
+    const session = authorizedSession(req, body.token)
 
     if (!session) {
       return json(res, 404, {
@@ -1255,9 +1281,9 @@ server.on('upgrade', (req, socket, head) => {
     }
 
     const authToken = requestUrl.searchParams.get('token')
-    const session = findByToken(authToken || '')
+    const session = authorizedSession(req, authToken || '')
 
-    if (!session) {
+    if (!websocketAllowed(req, runtimeConfig, session, verifyFreeDeviceCookieValue(getCookie(req, FREE_DEVICE_COOKIE)), requestUrl.pathname)) {
       socket.destroy()
       return
     }
