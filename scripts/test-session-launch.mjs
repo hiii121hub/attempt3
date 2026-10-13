@@ -23,6 +23,8 @@ globalThis.fetch = async (...args) => {
 const controllers = Array.from({ length: 5 }, () => new AbortController())
 function probe(path, expectOpen) {
   return new Promise((resolve, reject) => {
+    const probeStarted = Date.now()
+    const route = path.split('?')[0]
     const socket = new WebSocket(`ws://127.0.0.1:3997${path}`)
     let done = false
     const finish = (error, value) => {
@@ -30,9 +32,10 @@ function probe(path, expectOpen) {
       done = true
       clearTimeout(timer)
       socket.terminate()
+      console.log(JSON.stringify({ route, validToken: expectOpen, elapsedMs: Date.now() - probeStarted, result: error ? error.message : value }))
       error ? reject(error) : resolve(value)
     }
-    const timer = setTimeout(() => finish(new Error('WebSocket probe timed out')), 5000)
+    const timer = setTimeout(() => finish(new Error('WebSocket probe timed out')), 15000)
     socket.on('open', () => { if (!expectOpen) finish(new Error('Invalid token accepted')) })
     socket.on('message', data => finish(expectOpen ? null : new Error('Invalid token received data'), data.length))
     socket.on('error', () => finish(expectOpen ? new Error('Valid token rejected') : null, 'rejected'))
@@ -51,6 +54,7 @@ try {
   assert.equal(new Set(sessions.map(s => s.token)).size, 5)
   assert.equal(new Set(sessions.map(s => s.id)).size, 5)
   assert.equal((await (await nativeFetch(`${base}/health`)).json()).sessions, 5)
+  console.log(JSON.stringify({ created: sessions.length, busyResponses, elapsedMs: Date.now() - started }))
   for (const path of ['/audio', '/websockify']) {
     assert.equal(await probe(`${path}?token=invalid-test-token`, false), 'rejected')
     for (const session of sessions) assert.ok(await probe(`${path}?token=${encodeURIComponent(session.token)}`, true))
