@@ -1,5 +1,7 @@
 # Phase 2 checkpoint and next-session plan — October 13, 2026
 
+Later retest: see `PHASE2-LIVE-TEST.md` for a real Linux VNC-readiness failure rollback, subsequent Chrome launch and authenticated stream probes at application commit `85d8a6b`. The original checkpoint results below are retained as historical evidence.
+
 Branch: `fix/phase2-reliability-isolation`, based on `d9819526039a3a8c1810ab3a9f3b37482608688c`.
 Work directory on Mac: `/Users/haythammutan/Documents/Codex/2026-10-12/poxey-x1-project-handoff-project-overview/attempt3-audio-fix`.
 Repository: https://github.com/hiii121hub/attempt3.
