@@ -1,5 +1,10 @@
 # Phase 4 recovery checkpoint — October 14, 2026
 
+Historical checkpoint below. Phase 4.1 implements automatic fail-closed guards
+and the authorized recovery procedure in `IDENTITY-RECOVERY.md`; its results and
+remaining activation gate are recorded in `PHASE4.1-RESULTS.md`. Do not use the
+older startup/key-regeneration behavior described below as current instructions.
+
 **Code integration verified; runtime/identity recovery BLOCKED. Do not launch the
 original development service until the accounting recovery decision is approved.**
 This is not a public-release or five-active-user acceptance report.
