@@ -1,5 +1,15 @@
 # Phase 2 checkpoint and next-session plan — October 13, 2026
 
+Latest focused sprint: read `SPRINT-2026-10-13.md` first. Isolation specification
+checkpoint `a0cb3a9`, capacity/normal-teardown checkpoint `5dc928c`, and Linux smoke
+harness/diagnostics checkpoints `3cdb998` / `5ed57c0` are pushed on this branch.
+Current automated result: **196 passed**; warm Linux cap-one recovery/admission,
+stream probes and shutdown cleanup passed, but the earlier cold audio probe timed
+out. Five connected users, full audible/video playback, production isolation and
+eligible permanent free hosting remain **NOT VERIFIED**. See `SERVER-ACCEPTANCE.md`
+for the hosting/release gates. The older results and next-session plan below are
+historical and must not override this newer report.
+
 Later retest: see `PHASE2-LIVE-TEST.md` for a real Linux VNC-readiness failure rollback, subsequent Chrome launch and authenticated stream probes at application commit `85d8a6b`. The original checkpoint results below are retained as historical evidence.
 
 Branch: `fix/phase2-reliability-isolation`, based on `d9819526039a3a8c1810ab3a9f3b37482608688c`.
