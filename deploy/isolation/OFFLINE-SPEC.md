@@ -22,6 +22,18 @@ is ready. The worker image, relays, restricted web egress and durable restart
 reconciliation still need implementation and Linux integration. No default
 runtime or production flag enables this adapter automatically.
 
+Phase 4.2 adds a unique attempt UUID to ownership labels (prototype label v2),
+so an ambiguous creation cannot remove another attempt with the same session
+name. Old v1 resources are not taken over. Before **and** after starting a worker,
+`worker-inspection.mjs` checks the pinned image, namespaces, capabilities, non-root
+user, read-only root, mounts, private audio environment, CPU/memory/PID/tmpfs
+configuration and absent published ports. Missing/unsupported inspection fields
+refuse startup; rollback checks ownership rather than trusting the failed policy.
+The checks use synthetic Podman-5 JSON fixtures, **not captured live evidence**.
+Actual cgroup values and namespace boundaries still require Linux acceptance.
+Worker image environment inheritance, persistent container logs and automatic
+restart are explicitly disabled. No new production runtime selection is enabled.
+
 ## Implemented contract
 
 - Broker-issued v4 UUID and digest-pinned image required; unknown arguments,

@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { offlineWorkerRuntime, boundedPodman } from './offline-runtime.mjs'
+import { offlineWorkerSpec } from './worker-spec.mjs'
+import { workerFixture } from './worker-fixture.mjs'
 const host = () => ({ platform: 'linux', uid: 1000, podmanMajor: 5, rootless: true, cgroupVersion: 'v2', controllers: ['cpu', 'memory', 'pids'], subuids: 327680, subgids: 327680, userNamespaces: true })
 const input = () => ({ sessionId: '12345678-1234-4123-8123-123456789abc', image: `registry.example/poxey/worker@sha256:${'a'.repeat(64)}`, cpuMillis: 500, memoryMiB: 1024, pids: 256, tmpMiB: 128, shmMiB: 128 })
 function fixture(options = {}) {
@@ -21,7 +23,10 @@ function fixture(options = {}) {
       const id = String(++sequence).repeat(64)
       const name = args.find(arg => arg.startsWith('--name=')).slice(7)
       const sessionId = args.find(arg => arg.startsWith('--label=org.poxey.session=')).split('=').at(-1)
-      containers.set(id, { Id: id, Name: name, State: { Running: false }, Config: { Labels: { 'org.poxey.owner': 'poxey-offline-prototype-v1', 'org.poxey.session': sessionId } } })
+      const attemptId = args.find(arg => arg.startsWith('--label=org.poxey.attempt=')).split('=').at(-1)
+      const created = workerFixture(offlineWorkerSpec({ ...input(), sessionId }, { attemptId }), id)
+      options.mutateCreated?.(created)
+      containers.set(id, created)
       if (options.createResponseLost) throw Object.assign(new Error('response lost'), { code: 125 })
       return { stdout: id }
     }
@@ -129,4 +134,16 @@ test('bounded runner rejects excessive output from a real test child (not Podman
 test('storage access errors are not mistaken for absence', async () => {
   const f = fixture({ fail: args => args[0] === 'container' && args[1] === 'exists' })
   await assert.rejects(f.runtime.start(input())); assert.equal(f.calls.some(args => args[0] === 'create'), false)
+})
+test('missing resource enforcement is refused before start and owned container rolls back', async () => {
+  const f = fixture({ mutateCreated: value => value.HostConfig.Memory = 0 })
+  await assert.rejects(f.runtime.start(input()), /memory/)
+  assert.equal(f.calls.some(args => args[0] === 'start'), false)
+  assert.equal(f.runtime.reservations, 0); assert.equal(f.containers.size, 0)
+})
+test('ambiguous creation cannot remove a different lifecycle attempt', async () => {
+  const f = fixture({ createResponseLost: true, mutateCreated: value => value.Config.Labels['org.poxey.attempt'] = '87654321-4321-4123-9123-abcdef123456' })
+  await assert.rejects(f.runtime.start(input()), /rollback incomplete/)
+  assert.equal(f.calls.some(args => ['stop', 'rm'].includes(args[0])), false)
+  assert.equal(f.runtime.reservations, 1); assert.equal(f.containers.size, 1)
 })

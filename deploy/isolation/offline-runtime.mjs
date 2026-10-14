@@ -2,6 +2,7 @@
 import { execFile } from 'node:child_process'
 import { evaluateHost, inspectHost } from './preflight.mjs'
 import { offlineWorkerSpec, ownedWorkerCleanup } from './worker-spec.mjs'
+import { verifyWorkerInspection } from './worker-inspection.mjs'
 
 export function boundedPodman(args, { exec = execFile, env = process.env } = {}) {
   const childEnv = { PATH: '/usr/local/bin:/usr/bin:/bin' }
@@ -56,9 +57,10 @@ export function offlineWorkerRuntime({ enableOfflinePrototype = false, host = in
           const id = (await run(spec.args)).stdout.trim()
           if (!/^[0-9a-f]{64}$/.test(id)) throw new Error('Invalid created container ID')
           state.id = id
-          await inspect(state)
+          verifyWorkerInspection(spec, await inspect(state))
           await run(['start', id])
           const inspected = await inspect(state)
+          verifyWorkerInspection(spec, inspected)
           if (inspected.State?.Running !== true) throw new Error('Offline container did not remain running')
           return Object.freeze({ sessionId: spec.sessionId, containerId: id, stage: 'offline-container-only', chromeReady: false })
         } catch (error) {

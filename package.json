@@ -10,7 +10,7 @@
     "test:capacity": "node --test scripts/session-capacity.test.mjs scripts/session-teardown.test.mjs",
     "test:audio": "node --test scripts/session-audio.test.mjs scripts/audio-capture.test.mjs",
     "test:accounting": "node --test scripts/accounting-state.test.mjs scripts/accounting-startup.test.mjs",
-    "test:isolation-plan": "node --test deploy/isolation/preflight.test.mjs deploy/isolation/worker-spec.test.mjs deploy/isolation/offline-runtime.test.mjs",
+    "test:isolation-plan": "node --test deploy/isolation/preflight.test.mjs deploy/isolation/worker-spec.test.mjs deploy/isolation/worker-inspection.test.mjs deploy/isolation/offline-runtime.test.mjs",
     "check:isolation-host": "node deploy/isolation/preflight.mjs",
     "remote-browser": "./scripts/start-remote-browser.sh",
     "frontend:dev": "cd frontend && npm run dev",

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { offlineWorkerSpec, ownedWorkerCleanup } from './worker-spec.mjs'
 
 const input = () => ({ sessionId: '12345678-1234-4123-8123-123456789abc', image: `registry.example/poxey/worker@sha256:${'a'.repeat(64)}`, cpuMillis: 500, memoryMiB: 1024, pids: 256, tmpMiB: 128, shmMiB: 128 })
-const inspect = () => ({ Id: 'b'.repeat(64), Name: `poxey-offline-${input().sessionId}`, Config: { Labels: { 'org.poxey.owner': 'poxey-offline-prototype-v1', 'org.poxey.session': input().sessionId } } })
+const inspect = spec => ({ Id: 'b'.repeat(64), Name: `poxey-offline-${input().sessionId}`, Config: { Labels: { 'org.poxey.owner': 'poxey-offline-prototype-v2', 'org.poxey.session': input().sessionId, 'org.poxey.attempt': spec.attemptId } } })
 
 test('offline specification isolates resources, bounds quotas and exposes no host services', () => {
   const spec = offlineWorkerSpec(input())
@@ -33,9 +33,10 @@ test('separate broker UUIDs produce different resource identities', () => {
   assert.notEqual(offlineWorkerSpec(input()).name, offlineWorkerSpec({ ...input(), sessionId: '87654321-4321-4123-9123-abcdef123456' }).name)
 })
 test('cleanup targets only the inspected container ID with matching broker ownership', () => {
-  assert.deepEqual(ownedWorkerCleanup(offlineWorkerSpec(input()), inspect()), [['stop', '--time=5', 'b'.repeat(64)], ['rm', 'b'.repeat(64)]])
-  assert.throws(() => ownedWorkerCleanup(offlineWorkerSpec(input()), null))
-  for (const wrong of [{ ...inspect(), Name: 'unrelated' }, { ...inspect(), Id: '--all' }, { ...inspect(), Config: { Labels: {} } }, { ...inspect(), Config: { Labels: { ...inspect().Config.Labels, 'org.poxey.session': 'another-session' } } }]) {
-    assert.throws(() => ownedWorkerCleanup(offlineWorkerSpec(input()), wrong))
+  const spec = offlineWorkerSpec(input()), value = inspect(spec)
+  assert.deepEqual(ownedWorkerCleanup(spec, value), [['stop', '--time=5', 'b'.repeat(64)], ['rm', 'b'.repeat(64)]])
+  assert.throws(() => ownedWorkerCleanup(spec, null))
+  for (const wrong of [{ ...value, Name: 'unrelated' }, { ...value, Id: '--all' }, { ...value, Config: { Labels: {} } }, { ...value, Config: { Labels: { ...value.Config.Labels, 'org.poxey.session': 'another-session' } } }]) {
+    assert.throws(() => ownedWorkerCleanup(spec, wrong))
   }
 })
