@@ -5,8 +5,13 @@ import fs from 'node:fs'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { WebSocket } from 'ws'
+import { readRuntimeConfig, developmentStateDir } from './security-policy.mjs'
+import { openAccountingState } from './accounting-state.mjs'
 
 assert.ok(process.platform === 'linux' && process.env.NODE_ENV !== 'production' && process.env.POXEY_CAPACITY_SMOKE === '1', 'Requires explicit POXEY_CAPACITY_SMOKE=1 on an idle Linux development host')
+const stateDir = readRuntimeConfig().stateDir
+assert.ok(process.env.POXEY_STATE_DIR && stateDir !== developmentStateDir, 'Requires explicitly provisioned disposable accounting state, not user records')
+openAccountingState(stateDir).assertReady()
 const base = 'http://127.0.0.1:3997', root = '/tmp/poxey-sessions'
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const dirs = () => fs.existsSync(root) ? fs.readdirSync(root).filter(name => /^[0-9a-f-]{36}$/.test(name)) : []
@@ -52,7 +57,7 @@ function probe(route, token, valid) {
 try {
   await until(async () => { try { return (await health()).ok } catch { return false } })
   assert.equal((await health()).maxSessions, 1)
-  const secretFile = `${root}/tokens/poxey-free-cookie.secret`, ledgerFile = `${root}/tokens/poxey-free-usage.json`
+  const secretFile = `${stateDir}/poxey-free-cookie.secret`, ledgerFile = `${stateDir}/poxey-free-usage.json`
   const secret = fs.readFileSync(secretFile)
   const prior = fs.existsSync(ledgerFile) ? JSON.parse(fs.readFileSync(ledgerFile)) : {}
   const failureStarted = Date.now(), failed = post('/session/create')

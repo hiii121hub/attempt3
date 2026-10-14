@@ -7,6 +7,7 @@ The frontend is built once and served as static files. Vite is not a production 
 ## What is implemented
 
 - `NODE_ENV=production` requires Linux, a non-root service account, one explicit HTTPS origin, and persistent allowance storage outside `/tmp`.
+- Development and production now require intact private identity/accounting state before any service starts; neither regenerates a lost key or initializes an empty ledger. See [the explicit recovery procedure](IDENTITY-RECOVERY.md) before starting an existing installation with missing state.
 - Production Chrome omits `--no-sandbox`. Startup checks unprivileged user namespaces and has no insecure fallback. Development keeps the existing Chrome flags.
 - Browser child processes receive an environment allowlist, not GitHub/cloud credentials or the allowance-signing secret.
 - Production POST and WebSocket requests require the configured Origin and HTTPS forwarding. Session operations additionally require the signed cookie belonging to that session. Tokens alone are insufficient in production.
@@ -67,7 +68,7 @@ Publish `frontend/dist/` into an empty versioned static release directory and po
 
 Install `deploy/poxey.service` as `/etc/systemd/system/poxey.service`. Copy `deploy/poxey.env.example` to `/etc/poxey/poxey.env`, root:poxey mode 0640, then set the exact origin, e.g. `https://your-approved-domain.example`, persistent directory `/var/lib/poxey/state`, and initial cap `1`. Do not put real secrets in Git.
 
-Before migrating an existing service, end only authorized sessions and preserve its existing cookie-signing secret and `poxey-free-usage.json` in a protected backup. Copy those exact files into the configured state directory with service ownership/mode 0600. Do not initialize an empty ledger over existing usage. Keep `/tmp/poxey-sessions` solely for ephemeral profiles in production; never clean `/var/lib/poxey/state` as part of session cleanup.
+Before migrating an existing service, end only authorized sessions and preserve its existing cookie-signing secret and `poxey-free-usage.json` in a protected backup. The state now also requires a reviewed integrity/recovery manifest: copying two legacy files alone is not sufficient. Follow [identity recovery](IDENTITY-RECOVERY.md), preferring a reviewed same-key import if the original key exists; never initialize an empty ledger over existing usage or silently rotate a key. Keep `/tmp/poxey-sessions` solely for ephemeral profiles in production; never clean `/var/lib/poxey/state` as part of session cleanup.
 
 Configure Caddy's service environment with `POXEY_HOSTNAME` matching the HTTPS origin's DNS hostname; this template uses standard ports 80/443. Keep `POXEY_BIND=127.0.0.1` during private staging. Both the explicit HTTP redirect site and HTTPS site use that binding; do not rely on Caddy's automatically created redirect listener inheriting a site bind. Copy the candidate Caddyfile to an approved configuration location. Caddy preserves `/websockify` and `/audio`, strips only `/__poxey_session`, serves static assets and sets HTTPS forwarding itself. Do not enable TLS verification bypasses. Automatic public certificates require an approved hostname and ACME challenge reachability; local config validation does not issue or prove a certificate.
 

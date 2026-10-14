@@ -11,8 +11,11 @@ import { sessionCapacity } from './session-capacity.mjs'
 import { processRunning, teardownResources } from './session-teardown.mjs'
 import { createSessionSink } from './session-audio.mjs'
 import { startAudioCapture } from './audio-capture.mjs'
+import { openAccountingState, freeAllowance, signDeviceId, verifyDeviceCookie } from './accounting-state.mjs'
 
 const runtimeConfig = readRuntimeConfig()
+// Validate persisted identity/accounting before creating runtime files or listening.
+const accounting = openAccountingState(runtimeConfig.stateDir)
 
 const HOST = '127.0.0.1'
 const PORT = 3997
@@ -62,8 +65,6 @@ fs.mkdirSync(BASE_DIR, { recursive: true, mode: 0o700 })
 fs.chmodSync(BASE_DIR, 0o700)
 const TOKEN_DIR = runtimeConfig.stateDir
 const TOKEN_FILE = path.join(TOKEN_DIR, 'poxey.tokens')
-const FREE_USAGE_FILE = path.join(TOKEN_DIR, 'poxey-free-usage.json')
-const FREE_COOKIE_SECRET_FILE = path.join(TOKEN_DIR, 'poxey-free-cookie.secret')
 
 fs.mkdirSync(TOKEN_DIR, { recursive: true, mode: 0o700 })
 fs.chmodSync(TOKEN_DIR, 0o700)
@@ -193,55 +194,12 @@ function sessionId() {
   return crypto.randomUUID()
 }
 
-function loadFreeCookieSecret() {
-  if (process.env.POXEY_FREE_COOKIE_SECRET) {
-    return process.env.POXEY_FREE_COOKIE_SECRET
-  }
-
-  if (fs.existsSync(FREE_COOKIE_SECRET_FILE)) {
-    return fs.readFileSync(FREE_COOKIE_SECRET_FILE, 'utf8').trim()
-  }
-
-  const secret = crypto.randomBytes(32).toString('base64url')
-  fs.writeFileSync(FREE_COOKIE_SECRET_FILE, secret, { mode: 0o600 })
-  fs.chmodSync(FREE_COOKIE_SECRET_FILE, 0o600)
-  return secret
-}
-
-const FREE_COOKIE_SECRET = loadFreeCookieSecret()
-
-function signFreeDeviceId(deviceId) {
-  return crypto
-    .createHmac('sha256', FREE_COOKIE_SECRET)
-    .update(deviceId)
-    .digest('base64url')
-}
-
 function createFreeDeviceCookieValue(deviceId) {
-  return `${deviceId}.${signFreeDeviceId(deviceId)}`
+  return signDeviceId(deviceId, accounting.secret)
 }
 
 function verifyFreeDeviceCookieValue(value) {
-  if (!value) return null
-
-  const separator = value.lastIndexOf('.')
-  if (separator <= 0) return null
-
-  const deviceId = value.slice(0, separator)
-  const signature = value.slice(separator + 1)
-  const expected = signFreeDeviceId(deviceId)
-
-  const actualBuffer = Buffer.from(signature)
-  const expectedBuffer = Buffer.from(expected)
-
-  if (
-    actualBuffer.length !== expectedBuffer.length ||
-    !crypto.timingSafeEqual(actualBuffer, expectedBuffer)
-  ) {
-    return null
-  }
-
-  return deviceId
+  return verifyDeviceCookie(value, accounting.secret)
 }
 
 function getCookie(req, name) {
@@ -264,6 +222,8 @@ function getCookie(req, name) {
 }
 
 function getOrCreateFreeDevice(req, res) {
+  const deviceCookies = (req.headers.cookie || '').split(';').filter(part => part.trim().split('=', 1)[0] === FREE_DEVICE_COOKIE)
+  if (deviceCookies.length > 1) throw new Error('INVALID_DEVICE_COOKIE')
   const existing = verifyFreeDeviceCookieValue(
     getCookie(req, FREE_DEVICE_COOKIE)
   )
@@ -273,6 +233,10 @@ function getOrCreateFreeDevice(req, res) {
       deviceId: existing,
       isNew: false,
     }
+  }
+
+  if (deviceCookies.length) {
+    throw new Error('INVALID_DEVICE_COOKIE')
   }
 
   const deviceId = crypto.randomUUID()
@@ -298,71 +262,15 @@ function getOrCreateFreeDevice(req, res) {
 }
 
 function loadFreeUsage() {
-  if (!fs.existsSync(FREE_USAGE_FILE)) {
-    return {}
-  }
-
-  try {
-    const data = JSON.parse(fs.readFileSync(FREE_USAGE_FILE, 'utf8'))
-
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      if (runtimeConfig.production) throw new Error('Invalid usage ledger')
-      return {}
-    }
-
-    return data
-  } catch (error) {
-    if (runtimeConfig.production) throw new Error('Usage ledger unavailable; refusing to reset allowances', { cause: error })
-    return {}
-  }
+  return accounting.load()
 }
 
 function saveFreeUsage(usage) {
-  const tempFile = `${FREE_USAGE_FILE}.tmp`
-
-  fs.writeFileSync(
-    tempFile,
-    JSON.stringify(usage),
-    { mode: 0o600 }
-  )
-
-  fs.chmodSync(tempFile, 0o600)
-  fs.renameSync(tempFile, FREE_USAGE_FILE)
+  accounting.save(usage)
 }
 
 function getFreeAllowance(deviceId, now = Date.now()) {
-  const usage = loadFreeUsage()
-  const record = usage[deviceId]
-
-  if (
-    !record ||
-    !Number.isFinite(record.windowStartedAt) ||
-    !Number.isFinite(record.usedMs) ||
-    now - record.windowStartedAt >= FREE_ALLOWANCE_WINDOW_MS
-  ) {
-    return {
-      usage,
-      record: {
-        windowStartedAt: now,
-        usedMs: 0,
-      },
-      remainingMs: FREE_DAILY_ALLOWANCE_MS,
-    }
-  }
-
-  const usedMs = Math.min(
-    FREE_DAILY_ALLOWANCE_MS,
-    Math.max(0, record.usedMs),
-  )
-
-  return {
-    usage,
-    record: {
-      windowStartedAt: record.windowStartedAt,
-      usedMs,
-    },
-    remainingMs: Math.max(0, FREE_DAILY_ALLOWANCE_MS - usedMs),
-  }
+  return freeAllowance(loadFreeUsage(), deviceId, now)
 }
 
 function saveFreeAllowance(deviceId, allowance) {
@@ -1055,6 +963,9 @@ vncProxy.on('connection', (client, session) => {
 })
 
 const server = http.createServer(async (req, res) => {
+  try { accounting.assertReady() } catch {
+    return json(res, 503, { ok: false, error: 'IDENTITY_STATE_BLOCKED' })
+  }
   if (req.method !== 'GET' && !requestAllowed(req, runtimeConfig)) {
     return json(res, 403, { error: 'ORIGIN_REJECTED' })
   }
@@ -1088,6 +999,9 @@ const server = http.createServer(async (req, res) => {
 
       return json(res, 201, result)
     } catch (error) {
+      if (error?.message === 'INVALID_DEVICE_COOKIE') {
+        return json(res, 401, { error: 'INVALID_DEVICE_COOKIE' })
+      }
       console.error(
         '[Poxey Session] CREATE_SESSION_EXCEPTION',
         error instanceof Error ? error.stack : String(error)
@@ -1250,6 +1164,7 @@ setInterval(() => {
 
 server.on('upgrade', (req, socket, head) => {
   try {
+    accounting.assertReady()
     const requestUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`)
 
     if (requestUrl.pathname !== '/websockify' && requestUrl.pathname !== '/audio') {

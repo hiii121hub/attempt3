@@ -8,8 +8,13 @@ import http from 'node:http'
 import crypto from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import { WebSocket } from 'ws'
+import { readRuntimeConfig, developmentStateDir } from './security-policy.mjs'
+import { openAccountingState } from './accounting-state.mjs'
 
 assert.ok(process.platform === 'linux' && process.env.NODE_ENV !== 'production' && process.env.POXEY_AUDIO_COLD === '1', 'Requires opt-in idle Linux development host')
+const stateDir = readRuntimeConfig().stateDir
+assert.ok(process.env.POXEY_STATE_DIR && stateDir !== developmentStateDir, 'Requires explicitly provisioned disposable accounting state, not user records')
+openAccountingState(stateDir).assertReady()
 const base = 'http://127.0.0.1:3997', runtime = '/tmp/poxey-sessions'
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const profiles = () => fs.existsSync(runtime) ? fs.readdirSync(runtime).filter(name => /^[0-9a-f-]{36}$/.test(name)) : []
@@ -121,7 +126,7 @@ if (process.env.POXEY_AUDIO_FAULT === 'missing-server') {
     assert.equal(profiles().length, 0)
     const remainingSinks = JSON.parse(command('pactl', ['--format=json', 'list', 'sinks'], env))
     assert.ok(!remainingSinks.some(item => item.name.startsWith('poxey_')))
-    const ledger = path.join(runtime, 'tokens/poxey-free-usage.json')
+    const ledger = path.join(stateDir, 'poxey-free-usage.json')
     assert.ok(fs.statSync(ledger).size > 0)
     measured.cleanupPassed = true
     console.log(JSON.stringify(measured))

@@ -1,4 +1,8 @@
 import path from 'node:path'
+import { validateStatePath } from './accounting-state.mjs'
+
+const projectRoot = path.resolve(new URL('..', import.meta.url).pathname)
+export const developmentStateDir = path.join(path.dirname(projectRoot), '.poxey-state', path.basename(projectRoot))
 
 export function readRuntimeConfig(env = process.env, runtime = { platform: process.platform, uid: process.getuid?.() }) {
   const production = env.NODE_ENV === 'production'
@@ -7,7 +11,7 @@ export function readRuntimeConfig(env = process.env, runtime = { platform: proce
     throw new Error('POXEY_MAX_SESSIONS must be an integer between 1 and 100')
   }
   let origin = null
-  let stateDir = '/tmp/poxey-sessions/tokens'
+  let stateDir = env.POXEY_STATE_DIR ?? developmentStateDir
   if (production) {
     if (runtime.platform !== 'linux' || !Number.isInteger(runtime.uid) || runtime.uid === 0) {
       throw new Error('Production requires Linux and a dedicated non-root service user')
@@ -18,10 +22,8 @@ export function readRuntimeConfig(env = process.env, runtime = { platform: proce
     }
     origin = url.origin
     stateDir = env.POXEY_STATE_DIR || ''
-    if (!path.isAbsolute(stateDir) || path.normalize(stateDir) !== stateDir || stateDir === '/' || stateDir === '/tmp' || stateDir.startsWith('/tmp/')) {
-      throw new Error('POXEY_STATE_DIR must be a persistent absolute directory outside /tmp')
-    }
   }
+  validateStatePath(stateDir)
   return { production, origin, stateDir, maxSessions: Number(rawLimit) }
 }
 

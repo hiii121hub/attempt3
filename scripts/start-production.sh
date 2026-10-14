@@ -5,7 +5,7 @@ export NODE_ENV=production
 umask 077
 
 # Validate before starting PulseAudio or creating state. Never fall back to --no-sandbox.
-node --input-type=module -e "import { readRuntimeConfig } from './scripts/security-policy.mjs'; readRuntimeConfig()"
+node --input-type=module -e "import { readRuntimeConfig } from './scripts/security-policy.mjs'; import { openAccountingState } from './scripts/accounting-state.mjs'; openAccountingState(readRuntimeConfig().stateDir).assertReady()"
 for binary in node pulseaudio pactl ffmpeg Xvfb x11vnc xdotool unshare curl; do
   command -v "$binary" >/dev/null || { echo "Missing production dependency: $binary" >&2; exit 1; }
 done

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readRuntimeConfig, requestAllowed, sessionUsable, childEnvironment, chromeSandboxArgs, websocketAllowed, parseSessionBody, decodeCookie } from './security-policy.mjs'
+import { readRuntimeConfig, developmentStateDir, requestAllowed, sessionUsable, childEnvironment, chromeSandboxArgs, websocketAllowed, parseSessionBody, decodeCookie } from './security-policy.mjs'
 
 const env = { NODE_ENV: 'production', POXEY_PUBLIC_ORIGIN: 'https://poxey.example', POXEY_STATE_DIR: '/var/lib/poxey/state' }
 const linux = { platform: 'linux', uid: 1001 }
@@ -8,12 +8,18 @@ const config = readRuntimeConfig(env, linux)
 const req = { headers: { origin: config.origin, 'x-forwarded-proto': 'https' } }
 const session = () => ({ deviceId: 'device-a', expiresAt: Date.now() + 60000, audioClients: new Set(), vncClients: new Set() })
 
-test('development retains its existing cap, storage and Chrome sandbox flag', () => {
+test('development retains its cap and Chrome flag but uses persistent accounting', () => {
   const dev = readRuntimeConfig({}, { platform: 'darwin', uid: 0 })
   assert.equal(dev.maxSessions, 100)
-  assert.equal(dev.stateDir, '/tmp/poxey-sessions/tokens')
+  assert.equal(dev.stateDir, developmentStateDir)
+  assert.equal(readRuntimeConfig({ POXEY_STATE_DIR: '/workspaces/.poxey-state/test' }).stateDir, '/workspaces/.poxey-state/test')
   assert.deepEqual(chromeSandboxArgs(dev), ['--no-sandbox'])
   assert.equal(requestAllowed({ headers: {} }, dev), true)
+})
+test('development cannot opt back into temporary or project-contained accounting', () => {
+  for (const stateDir of ['/tmp/state', '/private/tmp/state', '/var/tmp/state', new URL('..', import.meta.url).pathname.slice(0, -1)]) {
+    assert.throws(() => readRuntimeConfig({ POXEY_STATE_DIR: stateDir }))
+  }
 })
 test('production defaults to one supervised tester and accepts a validated cap of five', () => {
   assert.equal(config.maxSessions, 1)

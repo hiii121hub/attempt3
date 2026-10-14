@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { WebSocket } from 'ws'
+import { readRuntimeConfig } from './security-policy.mjs'
 
 assert.equal(process.platform, 'linux')
 assert.equal(process.env.POXEY_ORIGINAL_SMOKE, '1')
@@ -10,7 +11,7 @@ assert.notEqual(process.env.NODE_ENV, 'production')
 assert.equal(fs.realpathSync(process.cwd()), '/workspaces/attempt3')
 const base = 'http://127.0.0.1:3997'
 const root = '/tmp/poxey-sessions'
-const ledgerPath = `${root}/tokens/poxey-free-usage.json`
+const ledgerPath = `${readRuntimeConfig().stateDir}/poxey-free-usage.json`
 const ledger = () => JSON.parse(fs.readFileSync(ledgerPath, 'utf8'))
 const health = async () => (await fetch(`${base}/health`, { signal: AbortSignal.timeout(3000) })).json()
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))

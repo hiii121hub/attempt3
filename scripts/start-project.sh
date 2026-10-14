@@ -2,6 +2,10 @@
 set -e
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+# Refuse startup before Pulse/Vite or supervisor creation if accounting is blocked.
+node --input-type=module -e 'import { readRuntimeConfig } from "./scripts/security-policy.mjs"; import { openAccountingState } from "./scripts/accounting-state.mjs"; openAccountingState(readRuntimeConfig().stateDir).assertReady()'
 
 ensure_pulseaudio() {
   if ! command -v pulseaudio >/dev/null || ! command -v pactl >/dev/null; then
