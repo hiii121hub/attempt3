@@ -40,6 +40,7 @@ export async function fiveUserRun({ durationSeconds, clients, create, heartbeat,
       if (response.status !== 200 || response.data.remainingMs < durationSeconds * 1000 + 30000) throw new Error('Insufficient unchanged allowance for sustained interval')
     }
     let pressureSamples = 0
+    const baseline = streams.map(stream => stream.summary())
     const begun = now()
     stage = 'sustained-monitoring'
     while (now() - begun < durationSeconds * 1000) {
@@ -58,7 +59,12 @@ export async function fiveUserRun({ durationSeconds, clients, create, heartbeat,
       await wait(Math.min(5000, durationSeconds * 1000 - (now() - begun)))
     }
     report.sustainedSeconds = (now() - begun) / 1000
-    report.streams = streams.map(stream => stream.summary())
+    report.streams = streams.map((stream, i) => {
+      const summary = stream.summary()
+      return { ...summary, sustainedVncBytes: summary.vncBytes - baseline[i].vncBytes,
+        sustainedAudioBytes: summary.audioBytes - baseline[i].audioBytes,
+        sustainedRfbFrames: summary.rfbFrames - baseline[i].rfbFrames }
+    })
   } catch { failure = true; report.failedStage = stage }
   finally {
     for (const stream of streams) stream.close()

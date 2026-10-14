@@ -16,7 +16,7 @@ function fixture(options = {}) {
     heartbeat: async () => ({ status: options.heartbeatFailure ? 401 : 200, data: { remainingMs: options.lowAllowance ? 100 : 1500000 } }),
     open: async ({ rejectOnly }) => {
       if (rejectOnly) { negatives++; if (options.authFailure) throw new Error('cross owner accepted'); return }
-      return { check: async () => { checks++; if (options.streamFailure) throw new Error('lost stream') }, summary: () => ({ bytes: 123 }), close: () => { closed++ } }
+      return { check: async () => { checks++; if (options.streamFailure) throw new Error('lost stream') }, summary: () => ({ vncBytes: checks * 100, audioBytes: checks * 50, rfbFrames: checks }), close: () => { closed++ } }
     },
     sample: async () => ({ cpuPercent: options.cpuPressure ? 99 : 10, memoryAvailableMiB: options.memoryPressure ? 100 : 4096, memoryUsedFraction: 0.5, oomEvents: options.oom ? 1 : 0 }),
     cleanup: async owned => { cleanupCount = owned.length; active.clear(); if (options.cleanupFailure) throw new Error('unverified') },
@@ -28,6 +28,7 @@ test('five independent simulated transport clients sustain, reject sixth and cle
   assert.equal(report.result, 'PASS'); assert.equal(report.sustainedSeconds, 15)
   assert.equal(report.humanAcceptance, 'NOT VERIFIED'); assert.equal(report.fileIsolation, 'NOT VERIFIED')
   assert.equal(report.sixthRejected, true); assert.equal(report.cleanupVerified, true)
+  assert.equal(report.streams[0].sustainedVncBytes, 1500)
   assert.deepEqual(f.state(), { cleanupCount: 5, closed: 5, checks: 15, negatives: 4, createCount: 7, active: 0 })
   assert.doesNotMatch(JSON.stringify(report), /secret-token|secret-cookie|session-/)
 })

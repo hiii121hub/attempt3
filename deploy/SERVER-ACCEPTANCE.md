@@ -25,6 +25,77 @@ No fixed CPU/RAM/bandwidth number is certified for five active users. The offlin
 worker specification's sample quotas are parser examples, not Chrome sizing advice.
 Measure sustained bandwidth and the offer's egress allowance before approving beta.
 
+## Phase 4.2: concrete candidate comparison (not benchmarks)
+
+**A verified minimum for five active users is still unknown.** For comparing
+eligible $0/no-card offers, an initial *evaluation* tier is 4 vCPU / 8 GiB RAM /
+30 GiB disk; a roomier evaluation tier is 8 vCPU / 16 GiB / 40 GiB. These are
+planning reservations, not measured requirements, capacity guarantees or advice
+to purchase anything. A smaller eligible host may only qualify for fewer users;
+do not waive the five-user test or create paid resources to match these numbers.
+
+Derive memory from measured worker peaks plus broker/OS/runtime reserve, not
+Chrome process count. Illustrative quota budgets: 5 × 1 GiB + 2 GiB reserve =
+7 GiB; 5 × 2 GiB + 2 GiB = 12 GiB. Neither worker quota is proven sufficient for
+YouTube/multiple tabs. Tmpfs/shared-memory usage is charged within memory limits,
+not free extra RAM. Inspect effective cgroup `memory.max` and `cpu.max`; displayed
+VM hardware can exceed the actual container quota. Do not rely on swap for steady
+interactive capacity or assert that the example 0.5-core worker quota is adequate.
+
+Use a currently supported/patched 64-bit Linux distribution (for example a
+supported Ubuntu/Debian release) with actual Podman **5+** packages and delegated
+cgroup v2. Do not assume the distribution's default Podman meets this project's
+policy. The current fixture and worker qualification target Linux x86-64;
+ARM compatibility has not been tested by this project, regardless of upstream
+Chrome platform availability. [Chrome's supported Linux prerequisites](https://support.google.com/chrome/a/answer/7100626?hl=en).
+
+For five `auto:size=65536` workers, reserve at least **327,680 subordinate UIDs and
+327,680 subordinate GIDs**, non-overlapping across allocations/accounts, with
+appropriate `newuidmap`/`newgidmap`, OCI runtime, systemd delegation and nested
+sandbox support. Confirm usable blocks rather than merely summing duplicate or
+fragmented entries; the current prerequisite checker does not certify overlap
+against other accounts. Do not mix unbounded keep-id/nomap allocations with this
+pool. Actual namespace mappings, LSM/seccomp and cgroups must pass ISO tests.
+[Podman user-namespace allocation semantics](https://docs.podman.io/en/latest/markdown/podman-run.1.html#userns-mode).
+
+Disk must fit shared immutable worker image layers, a retained rollback release,
+package/update overhead, bounded logs, durable lifecycle metadata and protected
+accounting backups. The image is not yet built, so its actual size is unknown;
+measure with `podman system df --format json`, `df -h` and workload measurements
+before deciding a minimum. Never prune unknown resources/backups to gain space.
+[Podman's read-only disk report](https://docs.podman.io/en/latest/markdown/podman-system-df.1.html).
+
+Networking requires long-lived authenticated HTTPS/WSS, approved outbound public
+web/DNS/media through restricted egress, and enough measured throughput/transfer
+allowance. Backend/VNC/Pulse/debug ports stay private; no inbound UDP is currently
+required by the existing WS streaming architecture. Review any later browser
+WebRTC/UDP requirements without weakening metadata/peer isolation.
+
+One known format-based budget: 44,100 samples/s × 2 channels × 2 bytes/sample =
+**176,400 bytes/s per continuously connected PCM audio stream**. Five streams are
+882,000 bytes/s = **7.056 Mbps**, or **1.0584 GB for 20 minutes**, before WS/TLS,
+video and retransmission overhead. This is arithmetic from the current capture
+format, not observed server egress. Measure noVNC video and real client throughput
+separately; free egress limits may be a bigger constraint than image storage.
+
+The worker image needs official real Chrome, fonts/CA certificates, Xvfb, x11vnc,
+PulseAudio/pactl, FFmpeg and xdotool. The broker needs the reviewed Node/runtime
+dependencies and private persistent state; the proxy needs static frontend
+artifacts, trusted HTTPS/WSS and unchanged routes. The per-worker image/entrypoint,
+private relays, restricted egress and crash journal still require implementation.
+
+Use `LOAD-TEST.md`'s dedicated-host protocol diagnostic first, then ISO-01–ISO-12
+and three/five independent real noVNC clients. Record exact commit/image/tool
+versions, host and effective quotas, startup/steady/peak CPU/RAM/PIDs, OOM events,
+interface and actual client bytes, input latency, disconnects, audible/video stalls
+and cleanup. The raw-RFB synthetic harness is not the real-site/public capacity
+benchmark. Review `ALLOWANCE-THREAT-MODEL.md` before claiming per-person limits.
+
+No Student benefit was checked or activated during Phase 4.2. Eligibility, $0
+funding, no card, runtime privileges, transfer budget, sleeping/expiry rules,
+permitted hosting use and spending protection all remain account-level checks
+before approving any server. No qualifying permanent free host is established.
+
 ## Deployment sequence, after host eligibility and explicit approval
 
 1. Follow `README.md`'s separate builder/release-directory instructions. Preserve

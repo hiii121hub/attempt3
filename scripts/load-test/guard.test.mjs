@@ -53,9 +53,11 @@ test('Linux sampler accounts for cgroup memory/CPU quota and records interface c
   const sample = linuxSampler({ read, now: () => time, logicalCpus: 8 })
   assert.equal(sample().memoryAvailableMiB, 3072)
   time += 1000; usage = 1000000; ticks = 'cpu 20 0 20 160 0 0 0 0\n'; oom = 1
+  files['/proc/net/dev'] = 'header\nheader\neth0: 1100 0 0 0 0 0 0 0 2200 0 0 0 0 0 0 0'
   const result = sample()
   assert.equal(result.cgroupCpuPercent, 50); assert.ok(Math.abs(result.hostCpuPercent - 20) < 1e-9); assert.equal(result.oomEvents, 1)
-  assert.deepEqual(result.networkInterfaceCounters.eth0, { rx: 100, tx: 200 })
+  assert.deepEqual(result.networkInterfaceCounters.eth0, { rx: 1100, tx: 2200 })
+  assert.deepEqual(result.networkInterfaceRates.eth0, { rxBytesPerSecond: 1000, txBytesPerSecond: 2000 })
   assert.equal(result.effectiveMemoryMiB, 4096)
 })
 test('real CLI on an unsupported host exits blocked before creating a directory or service', { skip: process.platform === 'linux' }, () => {

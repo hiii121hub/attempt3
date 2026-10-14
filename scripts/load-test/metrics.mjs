@@ -29,9 +29,13 @@ export function linuxSampler({ read = file => fs.readFileSync(file, 'utf8'), now
       if (fields.length !== 16 || !fields.every(Number.isFinite)) throw new Error('Network telemetry unavailable')
       return [name.trim(), { rx: fields[0], tx: fields[8] }]
     }))
-    previous = { time, total, idle, usage }
+    const rates = Object.fromEntries(Object.entries(interfaces).map(([name, counters]) => [name, {
+      rxBytesPerSecond: previous?.interfaces[name] && time > previous.time ? Math.max(0, counters.rx - previous.interfaces[name].rx) * 1000 / (time - previous.time) : 0,
+      txBytesPerSecond: previous?.interfaces[name] && time > previous.time ? Math.max(0, counters.tx - previous.interfaces[name].tx) * 1000 / (time - previous.time) : 0,
+    }]))
+    previous = { time, total, idle, usage, interfaces }
     return { atUTC: new Date(time).toISOString(), cpuPercent: Math.max(hostCpuPercent, cgroupCpuPercent), hostCpuPercent, cgroupCpuPercent,
       effectiveMemoryMiB: ceiling / 1048576, memoryAvailableMiB: available / 1048576, memoryUsedFraction: 1 - available / ceiling,
-      cgroupPids: pids, oomEvents: oom - initialOom, networkInterfaceCounters: interfaces }
+      cgroupPids: pids, oomEvents: oom - initialOom, networkInterfaceCounters: interfaces, networkInterfaceRates: rates }
   }
 }
