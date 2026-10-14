@@ -68,7 +68,8 @@ if (process.env.POXEY_AUDIO_FAULT === 'missing-server') {
     pulse.stderr.on('data', bytes => { audioError = bytes.toString().slice(-500) })
     await until(() => spawnSync('pactl', ['info'], { env, timeout: 1000, stdio: 'ignore' }).status === 0)
     measured.pulseReadyMs = Date.now() - pulseStarted
-    manager = spawn(process.execPath, [new URL('./poxey-session-manager.mjs', import.meta.url).pathname], { env, stdio: ['ignore', 'ignore', 'pipe'] })
+    manager = spawn(process.execPath, [new URL('./poxey-session-manager.mjs', import.meta.url).pathname], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+    manager.stdout.on('data', bytes => { for (const line of bytes.toString().split('\n')) if (line.startsWith('[Poxey Audio]')) managerAudio.push(line.slice(0, 300)); managerAudio = managerAudio.slice(-10) })
     manager.stderr.on('data', bytes => { for (const line of bytes.toString().split('\n')) if (line.startsWith('[Poxey Audio]')) managerAudio.push(line.slice(0, 300)); managerAudio = managerAudio.slice(-10) })
     await until(async () => { try { return (await health()).ok } catch { return false } })
     const started = Date.now(), created = await post('/session/create')

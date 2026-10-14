@@ -67,9 +67,10 @@ to use cgroup v1. macOS also cannot run this Linux prototype natively.
 
 Later Phase 3 direct checks found cgroup-v2 CPU/memory/PID controllers exposed and
 the cgroup subtree-control path writable, with nested user namespaces allowed.
-Podman is still absent. Delegation inside an actual rootless runtime and sufficient
-non-overlapping subordinate IDs remain unqualified. No packages or security policy
-were changed to bypass that blocker.
+Podman is still absent. The service account has 65,536 subordinate UIDs and GIDs,
+below the design's 327,680 for five workers. Delegation inside an actual rootless
+runtime remains unqualified. No packages, ID mappings or security policy were
+changed to bypass those blockers.
 
 Neither environment proves Chrome sandbox compatibility, enforced cgroup limits,
 private X11/PulseAudio, cross-worker isolation or cleanup of actual containers.

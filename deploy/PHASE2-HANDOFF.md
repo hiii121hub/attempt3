@@ -1,5 +1,14 @@
 # Phase 2 checkpoint and next-session plan — October 13, 2026
 
+Latest session: **read `PHASE3-HANDOFF.md` first**. Phase 3 verified and repaired
+missing-server audio publication, added bounded/owned FFmpeg startup cleanup,
+and implemented a tested offline container-lifecycle slice. Six real Chrome-tone
+process-cold rounds passed (three before, three after the repair); the original
+20.530-second cold timeout's cause is still unknown. Current automated total is
+240 passing runner results. Production isolation, audible client playback and
+five sustained active viewers remain unverified. This supersedes the resume order
+below without removing historical evidence.
+
 Latest focused sprint: read `SPRINT-2026-10-13.md` first. Isolation specification
 checkpoint `a0cb3a9`, capacity/normal-teardown checkpoint `5dc928c`, and Linux smoke
 harness/diagnostics checkpoints `3cdb998` / `5ed57c0` are pushed on this branch.
