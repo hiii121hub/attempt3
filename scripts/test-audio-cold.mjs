@@ -38,7 +38,24 @@ const post = async (route, body = {}) => {
   return { status: response.status, data: await response.json() }
 }
 const health = async () => (await fetch(`${base}/health`, { signal: AbortSignal.timeout(2000) })).json()
-for (let round = 1; round <= 3; round++) {
+if (process.env.POXEY_AUDIO_FAULT === 'missing-server') {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'poxey-audio-fault-'))
+  const manager = spawn(process.execPath, [new URL('./poxey-session-manager.mjs', import.meta.url).pathname], {
+    env: { ...process.env, NODE_ENV: 'development', POXEY_MAX_SESSIONS: '1', PULSE_SERVER: `unix:${temporary}/missing-native` }, stdio: 'ignore',
+  })
+  try {
+    await until(async () => { try { return (await health()).ok } catch { return false } })
+    const response = await post('/session/create')
+    console.log(JSON.stringify({ missingPulseServer: true, actualStatus: response.status, actualError: response.data.error || null, publishedSession: response.status === 201 }))
+    assert.equal(response.status, 500, 'Missing per-session audio must not publish a Chrome session')
+    assert.equal((await health()).occupiedSlots, 0)
+    assert.equal(profiles().length, 0)
+    console.log('Missing-server startup rejected and capacity recovered.')
+  } finally {
+    await stop(manager)
+    fs.rmSync(temporary, { recursive: true, force: true })
+  }
+} else for (let round = 1; round <= 3; round++) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'poxey-audio-cold-'))
   fs.mkdirSync(path.join(temporary, 'runtime'), { mode: 0o700 })
   fs.writeFileSync(path.join(temporary, 'cookie'), crypto.randomBytes(256), { mode: 0o600 })
@@ -119,4 +136,4 @@ for (let round = 1; round <= 3; round++) {
     fs.rmSync(temporary, { recursive: true, force: true }) // Only this harness's mkdtemp data.
   }
 }
-console.log('Three process-cold Chrome audio rounds passed; audible client playback NOT VERIFIED.')
+if (!process.env.POXEY_AUDIO_FAULT) console.log('Three process-cold Chrome audio rounds passed; audible client playback NOT VERIFIED.')
