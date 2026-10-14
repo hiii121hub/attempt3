@@ -7,6 +7,8 @@ import { spawn, spawnSync } from 'node:child_process'
 import { WebSocketServer } from 'ws'
 import { readRuntimeConfig, requestAllowed, sessionUsable, childEnvironment, chromeSandboxArgs, websocketAllowed, parseSessionBody, decodeCookie } from './security-policy.mjs'
 import { startupResources } from './startup-resources.mjs'
+import { sessionCapacity } from './session-capacity.mjs'
+import { processRunning, teardownResources } from './session-teardown.mjs'
 
 const runtimeConfig = readRuntimeConfig()
 
@@ -57,12 +59,15 @@ function createAudioSink(id) {
 }
 
 function removeAudioSink(moduleId) {
-  if (moduleId) spawnSync('pactl', ['unload-module', moduleId], {
+  if (moduleId) return spawnSync('pactl', ['unload-module', moduleId], {
     env: pulseEnvironment(), timeout: 5000,
   })
 }
 
 const sessions = new Map()
+const capacity = sessionCapacity(MAX_SESSIONS)
+const pendingCleanup = new Set()
+const retiringSessions = new Set()
 const startingFreeDevices = new Set()
 let sessionCreationLock = false
 
@@ -429,7 +434,7 @@ function spawnLogged(command, args, env, logFile) {
 }
 
 function isAlive(child) {
-  return child && child.exitCode === null && !child.killed
+  return processRunning(child)
 }
 
 function processDescendants(pid) {
@@ -558,11 +563,11 @@ function waitForPort(port, timeoutMs = 5000) {
 }
 
 function usedDisplays() {
-  return new Set([...sessions.values()].map(s => s.display))
+  return new Set([...sessions.values(), ...retiringSessions].map(s => s.display))
 }
 
 function usedPorts() {
-  return new Set([...sessions.values()].map(s => s.vncPort))
+  return new Set([...sessions.values(), ...retiringSessions].map(s => s.vncPort))
 }
 
 function isPortAvailable(port, host = HOST) {
@@ -610,9 +615,13 @@ async function createSession(req, res) {
   }
 
   sessionCreationLock = true
+  let capacitySlot
+  let published = false
+  let rollbackComplete = true
 
   try {
-    if (sessions.size >= MAX_SESSIONS) {
+    capacitySlot = capacity.reserve()
+    if (!capacitySlot) {
       return {
         error: 'MAX_SESSIONS',
         message: `Maximum of ${MAX_SESSIONS} active sessions reached.`,
@@ -877,6 +886,7 @@ async function createSession(req, res) {
       lastHeartbeat: now,
       usageStartedAt: now,
       lastUsageUpdateAt: now,
+      capacitySlot,
     }
 
     sessions.set(id, session)
@@ -906,6 +916,7 @@ async function createSession(req, res) {
       throw error
     }
     startup.commit()
+    published = true
 
     return {
       id,
@@ -917,43 +928,58 @@ async function createSession(req, res) {
       remainingMs: allowance.remainingMs,
     }
   } finally {
-    try { await startup.rollback() } finally { startingFreeDevices.delete(deviceId) }
+    try { await startup.rollback() } catch (error) {
+      rollbackComplete = false
+      throw error
+    } finally { startingFreeDevices.delete(deviceId) }
   }
   } finally {
+    if (!published && rollbackComplete) capacitySlot?.release()
     sessionCreationLock = false
   }
 }
 
 function cleanupSession(session, reason = 'cleanup') {
-  if (!session || session.cleaningUp) return
+  if (!session || session.cleaningUp) return session?.cleanupPromise
 
   session.cleaningUp = true
+  retiringSessions.add(session)
   sessions.delete(session.id)
-  for (const client of session.audioClients || []) client.close()
-  for (const client of session.vncClients || []) client.close()
-  removeAudioSink(session.audioSink?.moduleId)
-  writeTokenFile()
-
-  chargeSessionUsage(session, Date.now())
-
-  console.log(`[Poxey Session] Cleaning ${session.id}: ${reason}`)
-
-  for (const child of [session.chrome, session.x11vnc, session.xvfb]) {
-    if (isAlive(child)) {
-      child.kill('SIGTERM')
+  let bookkeepingFailed = false
+  // An accounting/token-file error must not prevent owned OS-resource cleanup.
+  for (const action of [
+    ...[...(session.audioClients || []), ...(session.vncClients || [])].map(client => () => client.close()),
+    writeTokenFile,
+    () => chargeSessionUsage(session, Date.now()),
+  ]) {
+    try { action() } catch (error) {
+      bookkeepingFailed = true
+      console.error('[Poxey Session] Cleanup bookkeeping failed:', error.message)
     }
   }
 
-  setTimeout(() => {
-    for (const child of [session.chrome, session.x11vnc, session.xvfb]) {
-      if (isAlive(child)) {
-        child.kill('SIGKILL')
-      }
-    }
+  console.log(`[Poxey Session] Cleaning ${session.id}: ${reason}`)
 
-    fs.rmSync(session.dir, { recursive: true, force: true })
-  }, 1500)
-
+  session.cleanupPromise = teardownResources({
+    children: [session.chrome, session.x11vnc, session.xvfb],
+    killTree: killProcessTree,
+    isAlive,
+    removeSink: () => {
+      const result = removeAudioSink(session.audioSink?.moduleId)
+      if (result && result.status !== 0) throw new Error('Session audio sink removal failed')
+    },
+    removeDirectory: () => fs.rmSync(session.dir, { recursive: true, force: true }),
+    wait: ms => new Promise(resolve => setTimeout(resolve, ms)),
+  }).then(() => {
+    if (bookkeepingFailed) throw new Error('Session bookkeeping did not complete')
+    retiringSessions.delete(session)
+    session.capacitySlot.release()
+  }).catch(error => {
+    // Fail closed: retain the capacity reservation if cleanup cannot be verified.
+    console.error(`[Poxey Session] Cleanup incomplete session=${session.id}:`, error.message)
+  }).finally(() => pendingCleanup.delete(session.cleanupPromise))
+  pendingCleanup.add(session.cleanupPromise)
+  return session.cleanupPromise
 }
 
 function parseBody(req) {
@@ -1079,6 +1105,7 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       sessions: sessions.size,
       maxSessions: MAX_SESSIONS,
+      occupiedSlots: capacity.occupied,
     })
   }
 
@@ -1305,7 +1332,9 @@ function shutdown() {
   for (const session of sessions.values()) {
     cleanupSession(session, 'manager shutdown')
   }
-  server.close(() => process.exit(0))
+  server.close(() => {
+    Promise.all([...pendingCleanup]).then(() => process.exit(0))
+  })
 }
 
 process.on('SIGTERM', shutdown)
