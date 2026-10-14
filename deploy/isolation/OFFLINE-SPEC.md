@@ -6,6 +6,22 @@ the native development stack, starts Chrome, or serves users. The image, runtime
 adapter, relay and restricted internet-egress proxy in `IMPLEMENTATION.md` remain
 unimplemented. Do not enable public access based on these unit tests.
 
+Phase 3 adds `offline-runtime.mjs`: an explicitly enabled, host-qualified offline
+create/inspect/start/stop/remove adapter using this specification. It rejects
+duplicate IDs and existing names, reconciles ambiguous creation failures by owned
+labels, verifies removal and retains failed-cleanup reservations. Its local Podman
+commands have a 10-second execution deadline, 1 MiB output cap and no shell or
+remote-mode/credential environment inheritance. Stop uses Podman's bounded
+TERM/KILL behavior. Tests exercise the lifecycle with a **simulated Podman runner**,
+plus real harmless Node subprocess timeout/output-limit tests. No actual container
+boundary is proven by those tests.
+
+The adapter is not imported by the native session manager. `chromeReady:false`
+is intentional: a running offline container is not proof that Chrome, VNC or audio
+is ready. The worker image, relays, restricted web egress and durable restart
+reconciliation still need implementation and Linux integration. No default
+runtime or production flag enables this adapter automatically.
+
 ## Implemented contract
 
 - Broker-issued v4 UUID and digest-pinned image required; unknown arguments,
@@ -48,6 +64,12 @@ CPU/memory/PID limits, cgroup-v2 qualification and sufficient subordinate ID ran
 did not qualify. No Podman integration was attempted. Missing Podman information
 means the checker cannot establish cgroup properties, not that the kernel is proven
 to use cgroup v1. macOS also cannot run this Linux prototype natively.
+
+Later Phase 3 direct checks found cgroup-v2 CPU/memory/PID controllers exposed and
+the cgroup subtree-control path writable, with nested user namespaces allowed.
+Podman is still absent. Delegation inside an actual rootless runtime and sufficient
+non-overlapping subordinate IDs remain unqualified. No packages or security policy
+were changed to bypass that blocker.
 
 Neither environment proves Chrome sandbox compatibility, enforced cgroup limits,
 private X11/PulseAudio, cross-worker isolation or cleanup of actual containers.
