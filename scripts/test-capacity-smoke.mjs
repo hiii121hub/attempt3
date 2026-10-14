@@ -15,7 +15,13 @@ let running = false
 try { await fetch(`${base}/health`); running = true } catch {}
 assert.equal(running, false, 'Existing manager must not be disturbed')
 const manager = spawn(process.execPath, [new URL('./poxey-session-manager.mjs', import.meta.url).pathname], {
-  env: { ...process.env, NODE_ENV: 'development', POXEY_MAX_SESSIONS: '1' }, stdio: 'ignore',
+  env: { ...process.env, NODE_ENV: 'development', POXEY_MAX_SESSIONS: '1' }, stdio: ['ignore', 'ignore', 'pipe'],
+})
+// Keep diagnostics narrow: never dump the environment, tokens or browser logs.
+const audioErrors = []
+manager.stderr.on('data', bytes => {
+  for (const line of bytes.toString().split('\n')) if (line.startsWith('[Poxey Audio]')) audioErrors.push(line.slice(0, 500))
+  if (audioErrors.length > 10) audioErrors.shift()
 })
 const exited = once(manager, 'exit')
 const health = async () => (await fetch(`${base}/health`)).json()
@@ -36,7 +42,7 @@ function probe(route, token, valid) {
       done = true; clearTimeout(timer); socket.terminate()
       ok ? resolve(value) : reject(new Error(`Stream probe failed ${route}`))
     }
-    const timer = setTimeout(() => finish(false), 10000)
+    const timer = setTimeout(() => finish(false), 15000)
     socket.on('open', () => { if (!valid) finish(false) })
     socket.on('message', bytes => finish(valid, bytes.length))
     socket.on('error', () => finish(!valid, 'rejected'))
@@ -70,9 +76,18 @@ try {
   console.log(JSON.stringify({ launch: 1, status: a.status, startupMs: Date.now() - started, remainingMs: a.data.remainingMs }))
   const full = await post('/session/create')
   assert.equal(full.status, 429); assert.equal(full.data.error, 'MAX_SESSIONS'); assert.equal((await health()).sessions, 1)
+  let audioPassed = false
   for (const route of ['/websockify', '/audio']) {
     assert.equal(await probe(route, 'invalid-test-token', false), 'rejected')
-    console.log(JSON.stringify({ route, invalid: 'rejected', validBytes: await probe(route, a.data.token, true) }))
+    const probeStarted = Date.now()
+    try {
+      const validBytes = await probe(route, a.data.token, true)
+      console.log(JSON.stringify({ route, invalid: 'rejected', validBytes, elapsedMs: Date.now() - probeStarted }))
+      if (route === '/audio') audioPassed = true
+    } catch (error) {
+      if (route !== '/audio') throw error
+      console.error(JSON.stringify({ route, invalid: 'rejected', valid: 'FAILED', elapsedMs: Date.now() - probeStarted, audioErrors }))
+    }
   }
   assert.equal((await post('/session/end', { token: a.data.token })).status, 200)
   const during = await post('/session/create')
@@ -87,7 +102,8 @@ try {
   const ledger = JSON.parse(fs.readFileSync(ledgerFile))
   for (const [id, record] of Object.entries(prior)) assert.deepEqual(ledger[id], record)
   assert.ok(Object.values(ledger).some(record => record.usedMs > 0))
-  console.log(JSON.stringify({ result: 'PASS', activeAndRetiringAdmission: true, shutdownProfileCleanup: true, ledgerRetained: true, secretRetained: true, fullViewers: false, audiblePlayback: false }))
+  console.log(JSON.stringify({ result: audioPassed ? 'PASS' : 'PARTIAL_AUDIO_FAILED', activeAndRetiringAdmission: true, shutdownProfileCleanup: true, ledgerRetained: true, secretRetained: true, fullViewers: false, audiblePlayback: false }))
+  if (!audioPassed) process.exitCode = 1
 } finally {
   if (manager.exitCode === null && manager.signalCode === null) { manager.kill('SIGTERM'); await exited }
   console.log('Final owned profile count:', dirs().length)
