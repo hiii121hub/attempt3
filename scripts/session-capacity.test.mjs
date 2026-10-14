@@ -55,3 +55,16 @@ test('an active or ending session retains its slot until cleanup completes', asy
 test('invalid capacity limits cannot silently disable admission', () => {
   for (const limit of [0, -1, 1.1, 101, NaN, Infinity, '5', undefined]) assert.throws(() => sessionCapacity(limit))
 })
+test('a failed fifth startup releases only its own slot while four users remain reserved', async () => {
+  const capacity = sessionCapacity(5)
+  const active = Array.from({ length: 4 }, () => capacity.reserve())
+  const failed = capacity.reserve()
+  assert.equal(capacity.reserve(), null)
+  await Promise.resolve() // Simulated rollback boundary, not a real Chrome failure.
+  failed.release()
+  assert.equal(capacity.occupied, 4)
+  assert.ok(capacity.reserve())
+  failed.release() // A delayed duplicate cleanup must not remove the replacement.
+  assert.equal(capacity.occupied, 5); assert.equal(capacity.reserve(), null)
+  active[0].release(); assert.equal(capacity.occupied, 4)
+})
