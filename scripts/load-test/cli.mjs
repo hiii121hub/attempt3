@@ -154,7 +154,7 @@ finally {
   for (const probe of probes) probe.close()
   try {
     await stop(manager); await stop(pulse)
-    if (media) await new Promise(resolve => media.close(resolve))
+    if (media) { media.closeAllConnections(); await new Promise(resolve => media.close(resolve)) }
     if (directory && fs.existsSync('/tmp/poxey-sessions')) fs.rmdirSync('/tmp/poxey-sessions') // Empty, newly owned root only; never recursive.
   } catch { report = { ...report, result: 'FAIL', shutdownCleanup: 'NOT VERIFIED' } }
   if (directory) fs.writeFileSync(path.join(directory, 'load-report.json'), JSON.stringify(report, null, 2), { mode: 0o600, flag: 'wx' })

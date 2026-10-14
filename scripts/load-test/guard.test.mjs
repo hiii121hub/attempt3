@@ -1,10 +1,24 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { qualifyDisposableHost, loadConfig, verifyOwnedListener } from './guard.mjs'
+import { qualifyDisposableHost, loadConfig, verifyOwnedListener, checkNoWebProxy } from './guard.mjs'
 import { linuxSampler } from './metrics.mjs'
 import { spawnSync } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 const host = { platform: 'linux', uid: 1000, configuredState: '', exists: () => false, processes: () => ({ status: 0, stdout: 'node\nsshd\n' }), portFree: async () => true, quietWebPorts: async () => true }
 test('only an empty, dedicated, non-root Linux test host qualifies', async () => assert.equal(await qualifyDisposableHost(host), true))
+test('quiet HTTP/HTTPS proxy checks explicitly succeed; active/uncertain listeners refuse', async () => {
+  for (const mode of ['absent', 'active', 'uncertain']) {
+    let calls = 0
+    const connect = () => {
+      calls++
+      const socket = new EventEmitter(); socket.setTimeout = () => {}; socket.destroy = () => {}
+      queueMicrotask(() => mode === 'active' ? socket.emit('connect') : mode === 'uncertain' ? socket.emit('timeout') : socket.emit('error', { code: 'ECONNREFUSED' }))
+      return socket
+    }
+    if (mode === 'absent') { assert.equal(await checkNoWebProxy(connect), true); assert.equal(calls, 4) }
+    else await assert.rejects(checkNoWebProxy(connect))
+  }
+})
 for (const variation of [{ platform: 'darwin' }, { uid: 0 }, { exists: () => true }, { exists: () => { throw new Error('unreadable') } },
   { processes: () => ({ status: 0, stdout: '  chrome\n' }) }, { processes: () => ({ status: 1 }) }, { portFree: async () => false },
   { configuredState: '/private/existing-accounting' }, { quietWebPorts: async () => false }, { processes: () => ({ status: 0, stdout: 'caddy\n' }) }]) {

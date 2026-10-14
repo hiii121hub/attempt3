@@ -3,21 +3,24 @@ import net from 'node:net'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
+export async function checkNoWebProxy(connect = options => net.createConnection(options)) {
+  for (const host of ['127.0.0.1', '::1']) for (const port of [80, 443]) await new Promise((resolve, reject) => {
+    const socket = connect({ host, port })
+    socket.setTimeout(1000)
+    socket.on('connect', () => { socket.destroy(); reject(new Error('Web proxy listener present')) })
+    socket.on('timeout', () => { socket.destroy(); reject(new Error('Web proxy inspection uncertain')) })
+    socket.on('error', error => error.code === 'ECONNREFUSED' ? resolve() : reject(error))
+  })
+  return true
+}
+
 export async function qualifyDisposableHost({ platform = process.platform, uid = process.getuid?.(), configuredState = process.env.POXEY_STATE_DIR, exists = file => {
   try { fs.lstatSync(file); return true } catch (error) { if (error.code === 'ENOENT') return false; throw error }
 }, processes = () => spawnSync('ps', ['-eo', 'comm='], { encoding: 'utf8', timeout: 3000 }), portFree = port => new Promise((resolve, reject) => {
   const server = net.createServer()
   server.once('error', reject)
   server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)))
-}), quietWebPorts = async () => {
-  for (const host of ['127.0.0.1', '::1']) for (const port of [80, 443]) await new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host, port })
-    socket.setTimeout(1000)
-    socket.on('connect', () => { socket.destroy(); reject(new Error('Web proxy listener present')) })
-    socket.on('timeout', () => { socket.destroy(); reject(new Error('Web proxy inspection uncertain')) })
-    socket.on('error', error => error.code === 'ECONNREFUSED' ? resolve() : reject(error))
-  })
-} } = {}) {
+}), quietWebPorts = checkNoWebProxy } = {}) {
   if (platform !== 'linux' || !Number.isInteger(uid) || uid <= 0) throw new Error('Requires a dedicated disposable non-root Linux host')
   // No force flag: never run on the original Codespace, even while it is stopped.
   if (configuredState) throw new Error('Existing accounting configuration must not enter a disposable fixture')
