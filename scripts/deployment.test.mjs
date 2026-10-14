@@ -57,3 +57,10 @@ test('capacity covers startup, active and cleanup resources and shutdown awaits 
   assert.equal((manager.match(/\.\.\.sessions.values\(\), \.\.\.retiringSessions/g) || []).length, 2)
   assert.doesNotMatch(manager, /sessions.size >= MAX_SESSIONS|!child.killed/)
 })
+test('session audio readiness and owned captures use existing authorized route and teardown', () => {
+  const manager = read('scripts/poxey-session-manager.mjs')
+  assert.match(manager, /createSessionSink\(id, \{ run: spawnSync, env: pulseEnvironment\(\), own: sink => startup.sink\(sink\) \}\)/)
+  assert.match(manager, /startAudioCapture\(\{ client, session, spawn, env: pulseEnvironment\(\)/)
+  assert.match(manager, /\.\.\.\(session.audioCaptures \|\| \[\]\)/)
+  assert.doesNotMatch(manager, /return \{ name: null, moduleId: null \}/)
+})

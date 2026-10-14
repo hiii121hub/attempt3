@@ -9,6 +9,8 @@ import { readRuntimeConfig, requestAllowed, sessionUsable, childEnvironment, chr
 import { startupResources } from './startup-resources.mjs'
 import { sessionCapacity } from './session-capacity.mjs'
 import { processRunning, teardownResources } from './session-teardown.mjs'
+import { createSessionSink } from './session-audio.mjs'
+import { startAudioCapture } from './audio-capture.mjs'
 
 const runtimeConfig = readRuntimeConfig()
 
@@ -41,21 +43,6 @@ function pulseEnvironment() {
 
   delete env.PULSE_RUNTIME_PATH
   return env
-}
-
-function createAudioSink(id) {
-  const name = `poxey_${id.replace(/-/g, '_')}`
-  const result = spawnSync('pactl', [
-    'load-module', 'module-null-sink',
-    `sink_name=${name}`,
-    'rate=44100', 'channels=2',
-  ], { env: pulseEnvironment(), encoding: 'utf8', timeout: 5000 })
-  if (result.status !== 0) {
-    console.warn('[Poxey Audio] Sink creation failed:', result.error?.message || result.stderr?.trim())
-    return { name: null, moduleId: null }
-  }
-  const moduleId = result.stdout.trim()
-  return /^\d+$/.test(moduleId) ? { name, moduleId } : { name: null, moduleId: null }
 }
 
 function removeAudioSink(moduleId) {
@@ -735,7 +722,7 @@ async function createSession(req, res) {
       }
     }
 
-    const audioSink = startup.sink(createAudioSink(id))
+    const audioSink = createSessionSink(id, { run: spawnSync, env: pulseEnvironment(), own: sink => startup.sink(sink) })
 
     const chromeEnv = {
       ...pulseEnvironment(),
@@ -874,6 +861,7 @@ async function createSession(req, res) {
       chromeWindowId,
       audioSink,
       audioClients: new Set(),
+      audioCaptures: new Set(),
       vncClients: new Set(),
       width: BASE_WIDTH,
       height: BASE_HEIGHT,
@@ -961,7 +949,7 @@ function cleanupSession(session, reason = 'cleanup') {
   console.log(`[Poxey Session] Cleaning ${session.id}: ${reason}`)
 
   session.cleanupPromise = teardownResources({
-    children: [session.chrome, session.x11vnc, session.xvfb],
+    children: [session.chrome, session.x11vnc, session.xvfb, ...(session.audioCaptures || [])],
     killTree: killProcessTree,
     isAlive,
     removeSink: () => {
@@ -1030,39 +1018,9 @@ const wsOptions = { noServer: true, ...(runtimeConfig.production ? { maxPayload:
 const audioProxy = new WebSocketServer(wsOptions)
 
 audioProxy.on('connection', (client, session) => {
-  if (!session.audioSink?.name || session.cleaningUp) {
-    client.close(1011, 'Audio unavailable')
-    return
-  }
-
-  const capture = spawn('ffmpeg', [
-    '-hide_banner', '-loglevel', 'warning',
-    '-f', 'pulse', '-i', `${session.audioSink.name}.monitor`,
-    '-ac', '2', '-ar', '44100', '-f', 's16le', 'pipe:1',
-  ], { env: pulseEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] })
-
-  session.audioClients.add(client)
-  capture.stdout.on('data', chunk => {
-    if (client.readyState === 1 && client.bufferedAmount < 1024 * 1024) {
-      client.send(chunk, { binary: true })
-    }
+  startAudioCapture({ client, session, spawn, env: pulseEnvironment(),
+    log: event => console.log('[Poxey Audio]', JSON.stringify(event)),
   })
-  capture.stderr.on('data', chunk => {
-    console.warn('[Poxey Audio]', chunk.toString().trim())
-  })
-  capture.on('error', error => {
-    console.error('[Poxey Audio] Capture failed:', error.message)
-    if (client.readyState === 1) client.close(1011, 'Capture failed')
-  })
-  capture.on('exit', () => {
-    if (client.readyState === 1) client.close(1011, 'Capture ended')
-  })
-  const stop = () => {
-    session.audioClients.delete(client)
-    if (capture.exitCode === null) capture.kill('SIGTERM')
-  }
-  client.on('close', stop)
-  client.on('error', stop)
 })
 
 const vncProxy = new WebSocketServer(wsOptions)
