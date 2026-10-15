@@ -91,3 +91,9 @@ Ready for developer handoff with explicit limitations, not public deployment.
 The subsequent owner-approved MIT addition covers only Poxey code they own;
 see [license scope/review](LICENSE-REVIEW.md). Merging and deployment still need
 approval. The initial cleanup's license-pending observations above are historical.
+
+Follow-up: the owner confirmed ownership of original contributions across all
+contributing GitHub accounts. noVNC content is now pinned to v1.3.0 with 75/76
+exact matches and one preserved MPL-covered coordinate modification. Image
+rights and proposed Terms clarification remain pending. See the updated license
+review and hash manifest; the latest offline run passed 326 tests and both builds.

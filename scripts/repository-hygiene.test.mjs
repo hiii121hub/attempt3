@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const read = name => fs.readFileSync(path.join(root, name), 'utf8')
@@ -50,12 +51,35 @@ for (const file of ['scripts/audio-server.mjs', 'scripts/start-remote-browser.sh
 }
 
 test('new handoff documentation has no broken local Markdown links', () => {
-  for (const name of ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.md', 'deploy/INDEX.md', 'deploy/TROUBLESHOOTING.md', 'deploy/CLEANUP-REPORT.md']) {
+  for (const name of ['README.md', 'CONTRIBUTING.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.md', 'deploy/INDEX.md', 'deploy/TROUBLESHOOTING.md', 'deploy/CLEANUP-REPORT.md', 'deploy/LICENSE-REVIEW.md', 'frontend/public/SOURCE.noVNC.md']) {
     for (const [, target] of read(name).matchAll(/\]\(([^)]+)\)/g)) {
       if (/^https?:/.test(target) || target.startsWith('#')) continue
       assert.ok(fs.existsSync(path.resolve(root, path.dirname(name), target.split('#')[0])), `${name}: ${target}`)
     }
   }
+})
+
+test('bundled noVNC provenance pins all 76 files and preserves the sole local modification', () => {
+  const manifest = JSON.parse(read('deploy/novnc-provenance.json'))
+  assert.equal(manifest.commit, '463c39e4af98ec4106b87bbea17e1605aa4c6180')
+  assert.equal(Object.keys(manifest.files).length, 76)
+  const modified = []
+  for (const [name, entry] of Object.entries(manifest.files)) {
+    assert.ok(name.startsWith('frontend/public/') && !name.includes('..'))
+    const digest = createHash('sha256').update(fs.readFileSync(path.join(root, name))).digest('hex')
+    assert.equal(digest, entry.sha256, name)
+    assert.equal(entry.modified, entry.sha256 !== entry.upstreamSha256, name)
+    if (entry.modified) modified.push(name)
+  }
+  assert.deepEqual(modified, ['frontend/public/core/util/element.js'])
+  assert.match(read('frontend/public/SOURCE.noVNC.md'), /under MPL-2.0/)
+})
+
+test('owner attestation does not silently license images or apply proposed Terms changes', () => {
+  assert.match(read('deploy/LICENSE-REVIEW.md'), /owner attestation/)
+  assert.match(read('deploy/LICENSE-REVIEW.md'), /Images\nand branding remain excluded/)
+  assert.match(read('deploy/LICENSE-REVIEW.md'), /not applied to the website/)
+  assert.match(read('frontend/src/TermsPage.tsx'), /You may not copy, modify, distribute/)
 })
 
 test('static distribution retains required third-party notices', () => {

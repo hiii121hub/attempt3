@@ -2,5 +2,6 @@ Third-party noVNC core library: MPL-2.0; copyright the noVNC Authors.
 Full license: licenses/MPL-2.0.txt
 Bundled pako: MIT; full license: vendor/pako/LICENSE
 Other embedded attribution, including DES, remains in individual source files.
-See the repository THIRD_PARTY_NOTICES.md for provenance limitations.
+See SOURCE.noVNC.md and the repository THIRD_PARTY_NOTICES.md for exact source
+availability, the verified upstream content match and local modification.
 These licenses apply to third-party code, not a new license for Poxey X1.

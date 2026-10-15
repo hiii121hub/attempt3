@@ -128,7 +128,8 @@ Vite/Vitest UI. No deployment or main merge is authorized by this cleanup.
 
 Poxey code owned by hiii121hub is licensed under [MIT](LICENSE),
 Copyright (c) 2026 hiii121hub. This grant does not relicense third-party code,
-contributions whose rights are unconfirmed, logos, images or trademarks.
+MPL-covered modifications, logos, images or trademarks. The owner confirmed
+ownership of their original contributions across the contributing accounts.
 See [license scope and provenance review](deploy/LICENSE-REVIEW.md).
-Third-party terms remain separate; unresolved asset/contributor permissions
+Third-party terms remain separate; unresolved asset permissions
 prevent claiming that the entire repository is cleared for redistribution.
