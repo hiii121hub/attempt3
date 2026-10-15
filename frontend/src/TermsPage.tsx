@@ -12,7 +12,7 @@ const TermsPage: React.FC<TermsPageProps> = ({ onAgree }) => {
           <a className="terms-back" href="/">← Poxey X1</a>
           <span>TERMS & CONDITIONS</span>
           <h1>Terms & Conditions</h1>
-          <p>Last updated: September 15, 2026</p>
+          <p>Last updated: October 14, 2026</p>
         </header>
 
         <section className="terms-card">
@@ -131,7 +131,7 @@ const TermsPage: React.FC<TermsPageProps> = ({ onAgree }) => {
             Poxey X and its original software, branding, design, graphics, text, logos, and other proprietary materials belong to Poxey X or their respective licensors unless otherwise stated.
           </p>
           <p>
-            You may not copy, modify, distribute, sell, reverse engineer, or commercially exploit proprietary Poxey X materials without permission, except where applicable law allows otherwise.
+            Poxey-owned source code is available under the MIT License. Third-party code, including modifications to MPL-covered files, remains under its applicable licenses. These Terms do not restrict rights granted by those licenses. Branding, logos and other excluded materials are not licensed by the source-code license; use requires permission unless applicable law allows otherwise.
           </p>
 
           <h2>17. Suspension and Termination</h2>

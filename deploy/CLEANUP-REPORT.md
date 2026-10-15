@@ -94,6 +94,8 @@ approval. The initial cleanup's license-pending observations above are historica
 
 Follow-up: the owner confirmed ownership of original contributions across all
 contributing GitHub accounts. noVNC content is now pinned to v1.3.0 with 75/76
-exact matches and one preserved MPL-covered coordinate modification. Image
-rights and proposed Terms clarification remain pending. See the updated license
-review and hash manifest; the latest offline run passed 326 tests and both builds.
+exact matches and one preserved MPL-covered coordinate modification. The owner
+confirms making both images; branding remains outside MIT. Approved Terms wording
+was applied only to the standalone component and its date, not styles/routing.
+This is owner attestation, not independent legal clearance. See the updated
+license review/hash manifest; the latest run passed 326 tests and both builds.

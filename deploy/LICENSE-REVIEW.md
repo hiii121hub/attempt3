@@ -26,15 +26,16 @@ Unverified material is not newly licensed by this grant.
 | noVNC core and duplicate historical layout | Official v1.3.0 commit content comparison and SHA-256 manifest | 75/76 files identical; one documented Poxey coordinate modification retains MPL; source notice added |
 | pako ES-module fork | README identifies 1.0.3; separate MIT notice | Retained under its own notice, not hiii121hub's copyright |
 | DES portions | Individual AT&T/Widget Workshop/Jef Poskanzer notices in source | Retain all individual terms; not replaced with project MIT |
-| `frontend/public/logo.png` | Added in `7565d31`, described as official Poxey logo | Active UI asset; no creation/source permission document located; excluded from MIT grant pending confirmation |
-| `frontend/public/IMG_4115_3.PNG` | Added in `234babf`; actually SVG despite filename, used by historical root app | No creation/source permission document located; excluded pending confirmation |
+| `frontend/public/logo.png` | Added in `7565d31`; owner confirms they made it | Creator attestation recorded; retained as branding outside the MIT code grant |
+| `frontend/public/IMG_4115_3.PNG` | Added in `234babf`; actually SVG; owner confirms they made it | Creator attestation recorded; retained outside the MIT code grant |
 | Google Chrome | Installed separately, not vendored here | No Chrome redistribution rights asserted |
 
-No asset, UI, third-party source, backup or user data was removed or changed.
+No asset, styling, third-party source, backup or user data was removed or changed.
 A Git author, filename or commit description is not proof of a legal right.
-The images remain preserved for the existing UI, but this review cannot certify
-their inclusion for redistribution. Obtain owner/source evidence or permission
-before claiming a completely cleared distributable.
+The images remain preserved for the existing UI based on the owner's creator
+attestation. This is not independent legal clearance of third-party input rights,
+copyright eligibility or trademarks. No standalone reusable asset license is
+granted by this code-licensing change.
 
 ## Dependency inventory
 
@@ -62,9 +63,11 @@ signature was not validated. Neither visual appearance nor embedded claims prove
 the generating account, permission for uploaded source materials, copyright
 ownership or freedom from trademark claims. No image was modified or removed.
 
-Ask the owner how each image was created/obtained, whether third-party input
-images were used, and what permission permits repository distribution. Images
-and branding remain excluded from the code-only MIT grant pending that evidence.
+The owner subsequently answered "I made them" for both images. Record this as
+their creator attestation, not independent proof of the generation account or
+any input-material rights. No third-party input source was identified or ruled
+out by that answer. Images and branding are excluded from the MIT code grant;
+downstream reuse needs separate permission. No broader asset license is chosen.
 
 ## Verified noVNC content provenance
 
@@ -78,13 +81,13 @@ and paths. The public [source notice](../frontend/public/SOURCE.noVNC.md) links
 the exact bundled source and tells redistributors to supply corresponding source
 for their own version. This is content provenance, not proof of download history.
 
-## Terms-page clarification still needed
+## Approved Terms-page clarification applied
 
 `frontend/src/TermsPage.tsx`, section 16, broadly describes proprietary materials
 and copying/modification restrictions. MIT is the owner's explicit permission for
 covered code; service-access rules, branding and excluded materials are separate.
-The wording should be clarified before public release. Proposed replacement for
-the restrictive paragraph (not applied to the website):
+The owner explicitly approved the wording-only change. Section 16's restrictive
+paragraph is now replaced with:
 
 > Poxey-owned source code is available under the MIT License. Third-party code,
 > including modifications to MPL-covered files, remains under its applicable
@@ -93,23 +96,28 @@ the restrictive paragraph (not applied to the website):
 > license; use requires permission unless applicable law allows otherwise.
 
 This preserves service-access rules while separating them from source-code rights.
-The Terms page itself is unchanged, respecting the existing UI/text preservation
-requirement; owner approval of this clarification is still requested.
+Only that paragraph and its last-updated date changed. Styling, markup structure,
+Chrome/input/audio/session behavior and the current homepage modal are untouched.
+This standalone TermsPage component is not imported by the current frontend
+entrypoint: the approved wording is updated in source but is not a newly exposed
+page/route. No new routing or interface was introduced.
 
 ## Before unrestricted redistribution
 
 1. Owner confirmation of original contributions is now recorded; do not extend
    it to imported third-party material.
-2. Supply ownership/source/permission evidence for both images; separately decide
-   whether to license assets or reserve branding.
+2. Image creator attestation is recorded. Keep assets/branding reserved unless
+   separately licensed; establish input rights and trademark clearance if needed
+   for a downstream distribution rather than assuming MIT covers them.
 3. Content-match provenance is now pinned; retain the manifest, notices and
    corresponding covered source for the exact version being redistributed.
-4. Clarify the terms page and retain all dependency notices in any distributable.
+4. The approved Terms clarification is applied to the stored component. Review
+   actual served terms in any release and retain all dependency notices.
 
 This is an engineering provenance review, not a legal opinion or a guarantee
 that all repository contents can be redistributed.
 
-## Verification of this update
+## Verification of the initial MIT addition
 
 On macOS with Node 26.8.2/npm 11.19.1, all 324 offline tests passed
 (255 backend, 28 frontend, 41 worker), with zero failed/skipped. Both builds and
@@ -126,7 +134,10 @@ and [third-party notices](../THIRD_PARTY_NOTICES.md).
 The subsequent owner-attestation and noVNC review passed all 326 offline tests
 (257 backend, 28 frontend, 41 worker), zero failed/skipped, plus both builds and
 diff checks. Two new checks verify every recorded vendor hash and the distinction
-between ownership confirmation, excluded assets and unapplied Terms wording.
+between ownership confirmation, excluded assets and approved Terms license rights.
 Source comparison used a separate official upstream checkout; no upstream code
-was executed. Existing vendor, image, UI, runtime and accounting files were not
-modified. Frontend bundle names remain unchanged.
+was executed. Existing vendor, image, styling, runtime and accounting files were
+not modified. The subsequent owner-approved Terms paragraph/date update also
+passed all 326 tests and both builds, zero failures/skips. Frontend bundle names
+remain unchanged because the standalone Terms component is not wired to the app;
+no route or visible modal was changed.

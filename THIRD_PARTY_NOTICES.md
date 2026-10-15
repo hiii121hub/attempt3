@@ -35,7 +35,8 @@ No vendor code or embedded individual attribution was changed.
 npm dependencies retain their own licenses; inspect the installed packages and
 lockfile when preparing a distributable. Chrome is separately installed proprietary
 software; no redistribution entitlement is implied. Linux tools and fonts have
-separate package licenses. The provenance/permission for bundled logos/images
-has not been established. Review these before reuse or release.
+separate package licenses. The owner confirms creating both bundled images;
+that attestation is documented in the provenance review. Images and branding
+remain outside MIT, with no separate reusable asset license granted here.
 
 This inventory is not a legal clearance or a complete license audit.

@@ -75,11 +75,12 @@ test('bundled noVNC provenance pins all 76 files and preserves the sole local mo
   assert.match(read('frontend/public/SOURCE.noVNC.md'), /under MPL-2.0/)
 })
 
-test('owner attestation does not silently license images or apply proposed Terms changes', () => {
+test('owner attestation preserves asset exclusions and approved Terms license rights', () => {
   assert.match(read('deploy/LICENSE-REVIEW.md'), /owner attestation/)
-  assert.match(read('deploy/LICENSE-REVIEW.md'), /Images\nand branding remain excluded/)
-  assert.match(read('deploy/LICENSE-REVIEW.md'), /not applied to the website/)
-  assert.match(read('frontend/src/TermsPage.tsx'), /You may not copy, modify, distribute/)
+  assert.match(read('deploy/LICENSE-REVIEW.md'), /Images and branding are excluded/)
+  assert.match(read('deploy/LICENSE-REVIEW.md'), /owner explicitly approved/)
+  assert.match(read('frontend/src/TermsPage.tsx'), /These Terms do not restrict rights granted by those licenses/)
+  assert.doesNotMatch(read('frontend/src/TermsPage.tsx'), /You may not copy, modify, distribute/)
 })
 
 test('static distribution retains required third-party notices', () => {
@@ -92,7 +93,7 @@ test('approved MIT grant is scoped without replacing third-party or asset rights
   assert.match(read('LICENSE'), /Copyright \(c\) 2026 hiii121hub/)
   assert.match(read('LICENSE'), /Permission is hereby granted, free of charge/)
   assert.match(read('README.md'), /does not relicense third-party code/)
-  assert.match(read('deploy/LICENSE-REVIEW.md'), /excluded from MIT grant pending confirmation/)
+  assert.match(read('deploy/LICENSE-REVIEW.md'), /outside the MIT code grant/)
   assert.match(read('frontend/public/vendor/pako/LICENSE'), /Copyright \(C\) 2014-2016 by Vitaly Puzrin/)
   assert.doesNotMatch(read('frontend/public/vendor/pako/LICENSE'), /hiii121hub/)
 })

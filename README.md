@@ -131,5 +131,6 @@ Copyright (c) 2026 hiii121hub. This grant does not relicense third-party code,
 MPL-covered modifications, logos, images or trademarks. The owner confirmed
 ownership of their original contributions across the contributing accounts.
 See [license scope and provenance review](deploy/LICENSE-REVIEW.md).
-Third-party terms remain separate; unresolved asset permissions
-prevent claiming that the entire repository is cleared for redistribution.
+The owner also confirms creating both bundled images; images and branding remain
+outside the MIT code grant. Third-party terms remain separate. This provenance
+review is not a blanket legal clearance for unrestricted redistribution.
