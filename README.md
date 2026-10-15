@@ -126,6 +126,9 @@ Vite/Vitest UI. No deployment or main merge is authorized by this cleanup.
 - [Security](SECURITY.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
-**Project license pending owner approval.** The old MIT claim had no supporting
-project LICENSE file. This cleanup selects no project license or new rights.
-Third-party licenses still apply. Review source/asset provenance before reuse.
+Poxey code owned by hiii121hub is licensed under [MIT](LICENSE),
+Copyright (c) 2026 hiii121hub. This grant does not relicense third-party code,
+contributions whose rights are unconfirmed, logos, images or trademarks.
+See [license scope and provenance review](deploy/LICENSE-REVIEW.md).
+Third-party terms remain separate; unresolved asset/contributor permissions
+prevent claiming that the entire repository is cleared for redistribution.

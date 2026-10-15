@@ -88,4 +88,6 @@ latest Safari/touch/Chromebook regressions and qualifying free hosting remain
 unverified. Historical live checks are not new cleanup test results.
 
 Ready for developer handoff with explicit limitations, not public deployment.
-Owner approval is needed for a project license, merging and any deployment.
+The subsequent owner-approved MIT addition covers only Poxey code they own;
+see [license scope/review](LICENSE-REVIEW.md). Merging and deployment still need
+approval. The initial cleanup's license-pending observations above are historical.

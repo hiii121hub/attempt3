@@ -1,7 +1,9 @@
 # Third-party notices and licensing review
 
-No project-wide license is selected. Owner approval is required. The former
-README MIT claim had no accompanying project LICENSE and is removed.
+The owner approved MIT for Poxey code they own: see [LICENSE](LICENSE),
+Copyright (c) 2026 hiii121hub. This does not relicense the third-party portions
+below or grant rights to unverified contributions, logos, images or trademarks.
+See [the provenance review](deploy/LICENSE-REVIEW.md) for remaining blockers.
 
 ## Bundled browser code
 

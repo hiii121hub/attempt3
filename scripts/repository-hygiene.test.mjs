@@ -63,3 +63,12 @@ test('static distribution retains required third-party notices', () => {
   assert.match(read('frontend/public/licenses/MPL-2.0.txt'), /Mozilla Public License/)
   assert.match(read('frontend/public/vendor/pako/LICENSE'), /Vitaly Puzrin/)
 })
+
+test('approved MIT grant is scoped without replacing third-party or asset rights', () => {
+  assert.match(read('LICENSE'), /Copyright \(c\) 2026 hiii121hub/)
+  assert.match(read('LICENSE'), /Permission is hereby granted, free of charge/)
+  assert.match(read('README.md'), /does not relicense third-party code/)
+  assert.match(read('deploy/LICENSE-REVIEW.md'), /excluded from MIT grant pending confirmation/)
+  assert.match(read('frontend/public/vendor/pako/LICENSE'), /Copyright \(C\) 2014-2016 by Vitaly Puzrin/)
+  assert.doesNotMatch(read('frontend/public/vendor/pako/LICENSE'), /hiii121hub/)
+})

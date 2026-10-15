@@ -12,6 +12,7 @@ Start with the [README](../README.md). These are current operational references:
 - [Offline specification](isolation/OFFLINE-SPEC.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
 - [Cleanup results](CLEANUP-REPORT.md)
+- [License scope and provenance review](LICENSE-REVIEW.md)
 
 ## Historical checkpoints — retained, not deleted
 

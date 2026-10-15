@@ -6,7 +6,10 @@ data. Never reset, force-push, merge or deploy without authorization.
 
 Read [the documentation index](deploy/INDEX.md). Reproduce a problem, make a
 targeted change and include tests plus an honest verification report in a PR.
-Project licensing remains pending owner approval.
+Poxey-owned code uses the [MIT license](LICENSE). Keep third-party terms separate;
+see [scope and unresolved permissions](deploy/LICENSE-REVIEW.md).
+Submit only contributions you have the right to license under MIT and identify
+any third-party material and its applicable license.
 
 ## Verification
 
