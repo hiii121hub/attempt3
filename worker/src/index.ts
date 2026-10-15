@@ -77,11 +77,6 @@ export default {
     destUrl.search = url.search
     const fullDestinationUrl = destUrl.href
 
-    console.log(
-      `Proxying: ${request.method} ${fullDestinationUrl}`,
-      `Tab: ${url.searchParams.get('_tb') || 'unknown'}`
-    )
-
     // Add cookies
     const cookies = getCookies(fullDestinationUrl)
     const headers = new Headers(request.headers)
@@ -149,7 +144,6 @@ export default {
             headers: redirectHeaders,
           })
 
-          console.log(`Redirect: ${response.status} through proxy to ${redirectDestination.href}`)
         } catch (e) {
           const error = e as Error
           console.error('Invalid redirect:', error.message)

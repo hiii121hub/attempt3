@@ -8,3 +8,12 @@ dist/
 
 *.swp
 *.swo
+
+# Private accounting, credentials and disposable test artifacts are never source.
+.poxey-state/
+poxey-free-cookie.secret
+poxey-free-usage.json
+identity-state.json
+poxey.tokens
+*.log
+coverage/

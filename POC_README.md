@@ -1,5 +1,10 @@
 # Remote Browser PoC - Setup & Usage Guide
 
+> Historical prototype, not current setup instructions. Preserved as evidence.
+> Its shared-browser launch/stop scripts are disabled because they bypass current
+> authentication/accounting protections. Do not follow its commands. See the
+> [current README](README.md) and [documentation index](deploy/INDEX.md).
+
 ## Overview
 
 This proof-of-concept demonstrates a real Chromium browser running remotely and controlled interactively through your normal browser using VNC streaming.

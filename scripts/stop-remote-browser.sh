@@ -1,4 +1,6 @@
 #!/bin/bash
+echo 'Legacy shared-browser stop script disabled. Stop the owning npm run dev process; do not kill unrelated sessions.' >&2
+exit 1
 
 # Colors for output
 RED='\033[0;31m'

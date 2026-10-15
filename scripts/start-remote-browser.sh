@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+echo 'Legacy shared-browser launcher disabled. Use npm run dev with verified persistent accounting state.' >&2
+exit 1
 set -u
 
 RED='\033[0;31m'

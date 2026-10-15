@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process'
 import { WebSocketServer } from 'ws'
 
+// Retained historical implementation. Never expose shared, unauthenticated audio.
+throw new Error('Legacy audio server disabled. Use npm run dev; authenticated per-session audio is served by the session manager.')
+
 const PORT = Number(process.env.POXEY_AUDIO_PORT || 3998)
 const PULSE_SERVER =
   process.env.PULSE_SERVER || 'unix:/tmp/runtime-1000/pulse/native'
