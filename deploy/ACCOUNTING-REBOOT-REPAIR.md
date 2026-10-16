@@ -66,3 +66,19 @@ The first focused run had three sandbox uptime-access failures. Diagnostics were
 changed to query uptime only when needed inside error handling; all 51 focused
 accounting/startup/reboot cases then passed. No cases were excluded.
 No live activation or Chrome/audio playback test was performed.
+
+## Linux verification of committed code
+
+At code commit `8bdb61809273e9c9ed0b3dd17a5da60a93b099f4`, created a separate
+detached worktree at `/workspaces/poxey-reboot-verify-8bdb618`, sharing the
+already-installed dependency directory through a symlink; no installation or
+original lockfile rewrite. Node v24.21.0 ran all 52 accounting/startup/reboot
+tests: 52 passed, zero failed/cancelled/skipped (about 2.33 seconds).
+These tests exercised synthetic state, not the original accounting records.
+
+From that new checkout, explicitly selecting the original directory for the
+read-only status command returned `RECOVERY_BOOT_CHANGED`,
+`ledgerVerified: true`, `admissionReady: false` and the unchanged old deadline.
+The original `/workspaces/attempt3` remained on its old engineering branch.
+The separate verification worktree is retained for review; it is not a live
+server or an automatically selected accounting destination.

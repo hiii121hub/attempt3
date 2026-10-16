@@ -3,6 +3,7 @@
 Start with the [README](../README.md). These are current operational references:
 
 - [Identity recovery/persistence](IDENTITY-RECOVERY.md)
+- [Reboot recovery repair and live diagnosis](ACCOUNTING-REBOOT-REPAIR.md)
 - [Deployment candidate](README.md)
 - [Host and release acceptance](SERVER-ACCEPTANCE.md)
 - [Allowance threat model](ALLOWANCE-THREAT-MODEL.md)
