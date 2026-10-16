@@ -43,10 +43,9 @@ be reviewed before establishing a new recovery observation.
 ## Live status and blockers
 
 This code does not recover the original key or make the old wait valid again.
-The user must identify the intended Codespace and account for other running copies
-before live re-observation/configuration. No new live recovery gate or signing
-key has been created in this repair. No original checkout synchronization or
-live startup is claimed yet. The original host remains blocked rather than
+The user has authorized repair of all copies. Other running copies must still
+be accounted for before live re-observation/configuration. No new live recovery
+gate or signing key has been created in this repair. The original host remains blocked rather than
 granting fresh identities using incomplete evidence.
 
 See [the recovery procedure](IDENTITY-RECOVERY.md). Public release is still not
@@ -82,3 +81,24 @@ read-only status command returned `RECOVERY_BOOT_CHANGED`,
 The original `/workspaces/attempt3` remained on its old engineering branch.
 The separate verification worktree is retained for review; it is not a live
 server or an automatically selected accounting destination.
+
+## Original checkout integration follow-up
+
+Safely fast-forwarded `/workspaces/attempt3` on its existing local engineering
+branch to `9649db7273df75e9a03bde604bcc80fafa2a4673`. No reset, forced checkout,
+stash, dependency installation or GitHub main merge was used. The upstream
+lockfile was unchanged, and both the modified local lockfile and protected
+ledger retained the exact hashes recorded above.
+
+Ran `npm run test:accounting` in the original checkout: 52 passed, zero failed,
+cancelled or skipped (about 1.61 seconds). Then tested the ordinary `npm run dev`
+command. It intentionally exited before launching services with
+`IDENTITY_STATE_BLOCKED`; `accounting:status` reports `RECOVERY_BOOT_CHANGED`.
+This is not a successful live startup and must not be presented as one.
+
+The current Codespace account inventory exposes only `redesigned-capybara`.
+The `redesigned-space-halibut` shown in the Windows photos has not been accessed
+or updated. Permission to repair all copies does not establish access to that
+other account's host or prove its accounting/session state is idle. Complete
+that inspection before establishing a replacement quarantine; do not select
+the unrelated ready demo state to make startup pass.
