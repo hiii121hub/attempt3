@@ -102,3 +102,26 @@ or updated. Permission to repair all copies does not establish access to that
 other account's host or prove its accounting/session state is idle. Complete
 that inspection before establishing a replacement quarantine; do not select
 the unrelated ready demo state to make startup pass.
+
+## Approved local recovery observation begun
+
+After the owner confirmed the friend's Codespace is inaccessible, inspected the
+available local snapshots without printing identities or record contents. Four
+readable ledgers each had one record and zero unexpired windows. The incomplete
+demo directory contained no regular files at its top level; it was not adopted
+as accounting state. Ports 3997/3999 were idle; host uptime was about 1.03 hours.
+
+Ran the explicit `reobserve` operator command, including its idle-host checks,
+to create `/workspaces/.poxey-state/attempt3-recovery-20261016-cap` from the
+protected original state. The source directory and old manifest were not changed.
+This is a blocked candidate, not live configuration or permission to activate.
+It created no key and cannot grant any allowance. The new earliest gate is
+**2026-10-17T04:00:41.454Z (October 16, 11:00:41 PM America/Chicago)**.
+
+Before activation, repeat status and idle-host checks, verify the same boot and
+full elapsed interval, review outstanding uncertainty from other copies, and
+verify ledger integrity. Do not auto-activate or select this candidate on startup.
+The inaccessible friend's deployment remains unverified; this observation makes
+no claim about its state or cross-host allowance enforcement. The live site is
+still stopped. An environment restart invalidates this candidate's same-boot
+proof; merely reaching the wall-clock deadline is insufficient.
