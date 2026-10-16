@@ -8,7 +8,7 @@ export const WINDOW_MS = 24 * 60 * 60 * 1000
 export const names = { ledger: 'poxey-free-usage.json', key: 'poxey-free-cookie.secret', manifest: 'identity-state.json' }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
-const fail = () => { throw new Error('IDENTITY_STATE_BLOCKED: preserve state; run the documented accounting recovery procedure. No allowances were initialized.') }
+const fail = () => { throw new Error('IDENTITY_STATE_BLOCKED: preserve state; run npm run accounting:status, then follow deploy/IDENTITY-RECOVERY.md. No allowances were initialized.') }
 
 export function validateStatePath(dir) {
   const project = path.resolve(new URL('..', import.meta.url).pathname)
@@ -85,6 +85,60 @@ export function prepareRecovery(dir, ledgerBytes, { now = Date.now(), bootId, up
   return { phase: meta.phase, notBefore: meta.notBefore }
 }
 
+// Read-only diagnostics expose no key, cookie, identity or usage-record contents.
+export function recoveryStatus(dir, { now = Date.now(), bootId, uptimeMs } = {}) {
+  try {
+    if (!Number.isSafeInteger(now) || now < 0) fail()
+    directory(dir)
+    const meta = manifest(dir)
+    validManifest(meta)
+    const bytes = read(dir, 'ledger')
+    const ledger = validateLedger(bytes, now)
+    if (digest(bytes) !== meta.ledgerSha256) fail()
+    if (meta.phase === 'ready') {
+      openAccountingState(dir, { now: () => now }).assertReady()
+      return { code: 'READY', admissionReady: true }
+    }
+    if (meta.phase === 'activating') return { code: 'INTERRUPTED_ACTIVATION_REVIEW', admissionReady: false }
+    if (fs.readdirSync(dir).includes(names.key)) fail()
+    const summary = { admissionReady: false, notBeforeUTC: new Date(meta.notBefore).toISOString(), ledgerVerified: true }
+    if (!bootId) return { ...summary, code: 'HOST_BOOT_UNVERIFIED' }
+    if (meta.bootId !== bootId) return { ...summary, code: 'RECOVERY_BOOT_CHANGED' }
+    try { uptimeMs ??= Math.floor(os.uptime() * 1000) }
+    catch { return { ...summary, code: 'UPTIME_PROOF_UNAVAILABLE' } }
+    if (!Number.isSafeInteger(uptimeMs) || uptimeMs < meta.observedUptimeMs) return { ...summary, code: 'UPTIME_PROOF_INVALID' }
+    if (now < meta.notBefore || uptimeMs - meta.observedUptimeMs < WINDOW_MS ||
+        Object.values(ledger).some(r => now < r.windowStartedAt + WINDOW_MS)) {
+      return { ...summary, code: 'RECOVERY_WAITING' }
+    }
+    return { ...summary, code: 'ELIGIBLE_FOR_IDLE_HOST_RECHECK' }
+  } catch {
+    return { code: 'STATE_MISSING_OR_INVALID', admissionReady: false }
+  }
+}
+
+// Explicit reviewed re-observation after a reboot, never automatic startup.
+// Preserve the source and its old gate; create a separate blocked copy with a
+// fresh full waiting window, no key and no live configuration change.
+export function reobserveRecovery(source, destination, { now = Date.now(), bootId, uptimeMs = Math.floor(os.uptime() * 1000), quiescent = false } = {}) {
+  directory(source)
+  validateStatePath(destination)
+  const meta = manifest(source)
+  validManifest(meta)
+  if (!quiescent || !bootId || meta.bootId === bootId || meta.phase !== 'blocked' ||
+      !Number.isSafeInteger(now) || now < meta.observedAt ||
+      !Number.isSafeInteger(uptimeMs) || uptimeMs < 0 ||
+      destination === source || destination.startsWith(source + path.sep) ||
+      source.startsWith(destination + path.sep) || fs.existsSync(destination) ||
+      fs.readdirSync(source).some(n => ![names.manifest, names.ledger].includes(n))) fail()
+  const bytes = read(source, 'ledger')
+  const ledger = validateLedger(bytes, now)
+  if (digest(bytes) !== meta.ledgerSha256 ||
+      meta.notBefore > Math.max(now + WINDOW_MS, ...Object.values(ledger).map(r => r.windowStartedAt + WINDOW_MS))) fail()
+  const result = prepareRecovery(destination, bytes, { now, bootId, uptimeMs })
+  return { ...result, sourcePreserved: true, ledgerPreserved: true, keyGenerated: false }
+}
+
 // CLI must independently verify an idle Linux host immediately before this call.
 export function activateRecovery(dir, { now = Date.now(), bootId, uptimeMs = Math.floor(os.uptime() * 1000), quiescent = false, checkpoint = () => {} } = {}) {
   directory(dir)
@@ -147,6 +201,37 @@ export function openAccountingState(dir, { now = () => Date.now(), checkpoint = 
       writeManifest(dir, { ...prior.meta, ledgerSha256: digest(bytes) })
     },
   }
+}
+
+// Explicit owner-approved reset for an UNUSED development deployment only.
+// Never called by startup or recovery; deliberately invalidates old allowances.
+export function resetUnusedDevelopmentState(dir, { confirmation, production = process.env.NODE_ENV === 'production',
+  quiescent = false, bootId, now = Date.now(), checkpoint = () => {} } = {}) {
+  if (production || confirmation !== 'RESET-UNUSED-DEVELOPMENT-ALLOWANCES' || !quiescent ||
+      !bootId || !Number.isSafeInteger(now) || now < 0 || process.env.POXEY_FREE_COOKIE_SECRET) fail()
+  validateStatePath(dir)
+  const parent = path.dirname(dir)
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 })
+  directory(parent)
+  const exists = fs.existsSync(dir)
+  if (exists) directory(dir)
+  const stage = fs.mkdtempSync(path.join(parent, '.owner-reset-'))
+  fs.chmodSync(stage, 0o700)
+  const key = crypto.randomBytes(32).toString('base64url'), ledger = Buffer.from('{}')
+  writeExclusive(path.join(stage, names.ledger), ledger)
+  writeExclusive(path.join(stage, names.key), key)
+  writeManifest(stage, { version: 1, phase: 'ready', observedAt: now,
+    observedUptimeMs: 0, bootId, notBefore: now + WINDOW_MS, activatedAt: now,
+    initialization: 'owner-approved-unused-development-reset',
+    keySha256: digest(key), ledgerSha256: digest(ledger) })
+  openAccountingState(stage, { now: () => now }).assertReady()
+  checkpoint('before-backup')
+  const backup = exists ? `${dir}.owner-backup-${crypto.randomUUID()}` : null
+  if (backup) { fs.renameSync(dir, backup); syncDirectory(parent) }
+  checkpoint('after-backup')
+  fs.renameSync(stage, dir)
+  syncDirectory(parent)
+  return { phase: 'ready', backup, allowancesReset: true, oldCookiesInvalidated: true }
 }
 
 export function freeAllowance(usage, deviceId, now = Date.now()) {

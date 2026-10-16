@@ -77,6 +77,47 @@ removes ephemeral session data, not this state directory.
    client tests. Never treat a successful unit test as a live browser result.
 
 If the host reboots during the blocked interval, the boot check fails closed.
+Use the read-only status command to distinguish that condition from corrupt or
+missing state, without exposing any user record or key:
+
+```sh
+node scripts/accounting-recovery.mjs status /workspaces/.poxey-state/attempt3
+```
+
+From the intended checkout, `npm run accounting:status` automatically selects
+the same configured state directory as normal startup; it is also read-only.
+
+Status returns exit 0 only for intact ready accounting, exit 2 for blocked/invalid
+accounting, and exit 1 for an inspection/command failure. It never creates files,
+starts services or generates keys. `ELIGIBLE_FOR_IDLE_HOST_RECHECK` is **not**
+permission to start: activation still independently checks host quiescence.
+`RECOVERY_BOOT_CHANGED` means the original wait cannot authorize activation.
+
+After an operator reviews **all** potentially active Codespaces/checkouts and
+confirms no intervening/unaccounted service remains, `reobserve` automates the
+previously manual new-destination procedure. It accepts only a private,
+checksum-verified blocked source with no key or ambiguous extra files and a
+different boot. It requires an idle Linux host and a new disjoint destination.
+Example paths below are instructions, not an operation performed by this report:
+
+```sh
+node scripts/accounting-recovery.mjs reobserve /workspaces/.poxey-state/attempt3-recovery-20261015 /workspaces/.poxey-state/attempt3
+```
+
+This copies ledger bytes unchanged, leaves the old directory/manifest/gate intact,
+creates no key, and starts a **new full 24-hour same-boot waiting interval**.
+It cannot shorten the old deadline, activate access, or change startup configuration.
+Keep admission closed on all relevant hosts throughout. Rebooting again requires
+another review; do not bypass it by editing manifests or clocks. Automatic recovery
+on startup is intentionally not provided.
+
+After the new interval and independent safety review, use the existing activation
+command on that new directory, then explicitly configure `POXEY_STATE_DIR` for
+the intended service account to the ready directory. Store configuration privately
+and persistently; verify it survives restart. Do not change that configuration
+before reviewing which Codespace is authoritative. The normal `npm run dev`
+command is unchanged, and remains blocked until ready state is selected.
+
 Do not edit the gate or manifest to bypass it: preserve the state and perform a
 reviewed new observation/recovery into a separate empty destination, with a new
 full waiting interval and explicit configuration. Preparation will not overwrite
