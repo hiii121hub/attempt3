@@ -8,7 +8,7 @@ export const WINDOW_MS = 24 * 60 * 60 * 1000
 export const names = { ledger: 'poxey-free-usage.json', key: 'poxey-free-cookie.secret', manifest: 'identity-state.json' }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
-const fail = () => { throw new Error('IDENTITY_STATE_BLOCKED: preserve state; run the documented accounting recovery procedure. No allowances were initialized.') }
+const fail = () => { throw new Error('IDENTITY_STATE_BLOCKED: preserve state; run node scripts/accounting-recovery.mjs status <configured-state-directory>, then follow deploy/IDENTITY-RECOVERY.md. No allowances were initialized.') }
 
 export function validateStatePath(dir) {
   const project = path.resolve(new URL('..', import.meta.url).pathname)
@@ -83,6 +83,60 @@ export function prepareRecovery(dir, ledgerBytes, { now = Date.now(), bootId, up
   syncDirectory(dir)
   writeManifest(dir, meta)
   return { phase: meta.phase, notBefore: meta.notBefore }
+}
+
+// Read-only diagnostics expose no key, cookie, identity or usage-record contents.
+export function recoveryStatus(dir, { now = Date.now(), bootId, uptimeMs } = {}) {
+  try {
+    if (!Number.isSafeInteger(now) || now < 0) fail()
+    directory(dir)
+    const meta = manifest(dir)
+    validManifest(meta)
+    const bytes = read(dir, 'ledger')
+    const ledger = validateLedger(bytes, now)
+    if (digest(bytes) !== meta.ledgerSha256) fail()
+    if (meta.phase === 'ready') {
+      openAccountingState(dir, { now: () => now }).assertReady()
+      return { code: 'READY', admissionReady: true }
+    }
+    if (meta.phase === 'activating') return { code: 'INTERRUPTED_ACTIVATION_REVIEW', admissionReady: false }
+    if (fs.readdirSync(dir).includes(names.key)) fail()
+    const summary = { admissionReady: false, notBeforeUTC: new Date(meta.notBefore).toISOString(), ledgerVerified: true }
+    if (!bootId) return { ...summary, code: 'HOST_BOOT_UNVERIFIED' }
+    if (meta.bootId !== bootId) return { ...summary, code: 'RECOVERY_BOOT_CHANGED' }
+    try { uptimeMs ??= Math.floor(os.uptime() * 1000) }
+    catch { return { ...summary, code: 'UPTIME_PROOF_UNAVAILABLE' } }
+    if (!Number.isSafeInteger(uptimeMs) || uptimeMs < meta.observedUptimeMs) return { ...summary, code: 'UPTIME_PROOF_INVALID' }
+    if (now < meta.notBefore || uptimeMs - meta.observedUptimeMs < WINDOW_MS ||
+        Object.values(ledger).some(r => now < r.windowStartedAt + WINDOW_MS)) {
+      return { ...summary, code: 'RECOVERY_WAITING' }
+    }
+    return { ...summary, code: 'ELIGIBLE_FOR_IDLE_HOST_RECHECK' }
+  } catch {
+    return { code: 'STATE_MISSING_OR_INVALID', admissionReady: false }
+  }
+}
+
+// Explicit reviewed re-observation after a reboot, never automatic startup.
+// Preserve the source and its old gate; create a separate blocked copy with a
+// fresh full waiting window, no key and no live configuration change.
+export function reobserveRecovery(source, destination, { now = Date.now(), bootId, uptimeMs = Math.floor(os.uptime() * 1000), quiescent = false } = {}) {
+  directory(source)
+  validateStatePath(destination)
+  const meta = manifest(source)
+  validManifest(meta)
+  if (!quiescent || !bootId || meta.bootId === bootId || meta.phase !== 'blocked' ||
+      !Number.isSafeInteger(now) || now < meta.observedAt ||
+      !Number.isSafeInteger(uptimeMs) || uptimeMs < 0 ||
+      destination === source || destination.startsWith(source + path.sep) ||
+      source.startsWith(destination + path.sep) || fs.existsSync(destination) ||
+      fs.readdirSync(source).some(n => ![names.manifest, names.ledger].includes(n))) fail()
+  const bytes = read(source, 'ledger')
+  const ledger = validateLedger(bytes, now)
+  if (digest(bytes) !== meta.ledgerSha256 ||
+      meta.notBefore > Math.max(now + WINDOW_MS, ...Object.values(ledger).map(r => r.windowStartedAt + WINDOW_MS))) fail()
+  const result = prepareRecovery(destination, bytes, { now, bootId, uptimeMs })
+  return { ...result, sourcePreserved: true, ledgerPreserved: true, keyGenerated: false }
 }
 
 // CLI must independently verify an idle Linux host immediately before this call.
