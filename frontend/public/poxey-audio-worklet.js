@@ -15,12 +15,20 @@ class PoxeyAudioProcessor extends AudioWorkletProcessor {
 
       this.queue.push(samples)
       this.bufferedSamples += samples.length
+
+      // Keep at most one second of queued stereo audio to avoid growing latency.
+      const maxBufferedSamples = sampleRate * 2
+      while (this.bufferedSamples > maxBufferedSamples && this.queue.length > 1) {
+        const dropped = this.queue.shift()
+        this.bufferedSamples -= dropped.length
+      }
     }
   }
 
   readSample() {
     if (!this.current || this.offset >= this.current.length) {
       this.current = this.queue.shift() || null
+      if (this.current) this.bufferedSamples -= this.current.length
       this.offset = 0
     }
 
@@ -53,6 +61,7 @@ class PoxeyAudioProcessor extends AudioWorkletProcessor {
 
     for (let i = 0; i < left.length; i++) {
       if (!this.current && this.queue.length === 0) {
+        this.started = false
         left[i] = 0
         right[i] = 0
         continue

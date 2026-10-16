@@ -25,7 +25,7 @@ export default defineConfig({
         changeOrigin: true
       },
       '/audio': {
-        target: 'ws://localhost:3998',
+        target: 'ws://localhost:3997',
         ws: true,
         changeOrigin: true
       }

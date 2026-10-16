@@ -5,13 +5,24 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { WebSocketServer } from 'ws'
+import { readRuntimeConfig, requestAllowed, sessionUsable, childEnvironment, chromeSandboxArgs, websocketAllowed, parseSessionBody, decodeCookie } from './security-policy.mjs'
+import { startupResources } from './startup-resources.mjs'
+import { sessionCapacity } from './session-capacity.mjs'
+import { processRunning, teardownResources } from './session-teardown.mjs'
+import { createSessionSink } from './session-audio.mjs'
+import { startAudioCapture } from './audio-capture.mjs'
+import { openAccountingState, freeAllowance, signDeviceId, verifyDeviceCookie } from './accounting-state.mjs'
+
+const runtimeConfig = readRuntimeConfig()
+// Validate persisted identity/accounting before creating runtime files or listening.
+const accounting = openAccountingState(runtimeConfig.stateDir)
 
 const HOST = '127.0.0.1'
 const PORT = 3997
 const BASE_DIR = '/tmp/poxey-sessions'
 const DISPLAY_START = 2
 const VNC_PORT_START = 5902
-const MAX_SESSIONS = 100
+const MAX_SESSIONS = runtimeConfig.maxSessions
 const BASE_WIDTH = 1024
 const BASE_HEIGHT = 700
 const MIN_SIZE_PERCENT = 75
@@ -23,16 +34,37 @@ const FREE_ALLOWANCE_WINDOW_MS = 24 * 60 * 60 * 1000
 const FREE_DEVICE_COOKIE = 'poxey-free-id'
 const FREE_DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
+// Each Chrome session gets its own PulseAudio null sink and monitor.
+function pulseEnvironment() {
+  // Let PulseAudio discover its active server unless deployment explicitly
+  // supplies a server address. This keeps pactl, FFmpeg, and Chrome aligned.
+  const env = childEnvironment(process.env, runtimeConfig.production)
+
+  if (!process.env.PULSE_SERVER) {
+    delete env.PULSE_SERVER
+  }
+
+  delete env.PULSE_RUNTIME_PATH
+  return env
+}
+
+function removeAudioSink(moduleId) {
+  if (moduleId) return spawnSync('pactl', ['unload-module', moduleId], {
+    env: pulseEnvironment(), timeout: 5000,
+  })
+}
+
 const sessions = new Map()
+const capacity = sessionCapacity(MAX_SESSIONS)
+const pendingCleanup = new Set()
+const retiringSessions = new Set()
 const startingFreeDevices = new Set()
 let sessionCreationLock = false
 
 fs.mkdirSync(BASE_DIR, { recursive: true, mode: 0o700 })
 fs.chmodSync(BASE_DIR, 0o700)
-const TOKEN_DIR = path.join(BASE_DIR, 'tokens')
+const TOKEN_DIR = runtimeConfig.stateDir
 const TOKEN_FILE = path.join(TOKEN_DIR, 'poxey.tokens')
-const FREE_USAGE_FILE = path.join(TOKEN_DIR, 'poxey-free-usage.json')
-const FREE_COOKIE_SECRET_FILE = path.join(TOKEN_DIR, 'poxey-free-cookie.secret')
 
 fs.mkdirSync(TOKEN_DIR, { recursive: true, mode: 0o700 })
 fs.chmodSync(TOKEN_DIR, 0o700)
@@ -67,7 +99,7 @@ async function waitForTcpPort(port, timeoutMs = 10000) {
 
 function findChromeWindowId(display) {
   const env = {
-    ...process.env,
+    ...childEnvironment(process.env, runtimeConfig.production),
     DISPLAY: display,
   }
 
@@ -109,7 +141,7 @@ async function resizeChromeWindow(session, width, height) {
     ],
     {
       env: {
-        ...process.env,
+        ...childEnvironment(process.env, runtimeConfig.production),
         DISPLAY: String(session.display).startsWith(':') ? String(session.display) : `:${session.display}`,
       },
       encoding: 'utf8',
@@ -162,55 +194,12 @@ function sessionId() {
   return crypto.randomUUID()
 }
 
-function loadFreeCookieSecret() {
-  if (process.env.POXEY_FREE_COOKIE_SECRET) {
-    return process.env.POXEY_FREE_COOKIE_SECRET
-  }
-
-  if (fs.existsSync(FREE_COOKIE_SECRET_FILE)) {
-    return fs.readFileSync(FREE_COOKIE_SECRET_FILE, 'utf8').trim()
-  }
-
-  const secret = crypto.randomBytes(32).toString('base64url')
-  fs.writeFileSync(FREE_COOKIE_SECRET_FILE, secret, { mode: 0o600 })
-  fs.chmodSync(FREE_COOKIE_SECRET_FILE, 0o600)
-  return secret
-}
-
-const FREE_COOKIE_SECRET = loadFreeCookieSecret()
-
-function signFreeDeviceId(deviceId) {
-  return crypto
-    .createHmac('sha256', FREE_COOKIE_SECRET)
-    .update(deviceId)
-    .digest('base64url')
-}
-
 function createFreeDeviceCookieValue(deviceId) {
-  return `${deviceId}.${signFreeDeviceId(deviceId)}`
+  return signDeviceId(deviceId, accounting.secret)
 }
 
 function verifyFreeDeviceCookieValue(value) {
-  if (!value) return null
-
-  const separator = value.lastIndexOf('.')
-  if (separator <= 0) return null
-
-  const deviceId = value.slice(0, separator)
-  const signature = value.slice(separator + 1)
-  const expected = signFreeDeviceId(deviceId)
-
-  const actualBuffer = Buffer.from(signature)
-  const expectedBuffer = Buffer.from(expected)
-
-  if (
-    actualBuffer.length !== expectedBuffer.length ||
-    !crypto.timingSafeEqual(actualBuffer, expectedBuffer)
-  ) {
-    return null
-  }
-
-  return deviceId
+  return verifyDeviceCookie(value, accounting.secret)
 }
 
 function getCookie(req, name) {
@@ -225,7 +214,7 @@ function getCookie(req, name) {
     const value = part.slice(separator + 1).trim()
 
     if (key === name) {
-      return decodeURIComponent(value)
+      return decodeCookie(value)
     }
   }
 
@@ -233,6 +222,8 @@ function getCookie(req, name) {
 }
 
 function getOrCreateFreeDevice(req, res) {
+  const deviceCookies = (req.headers.cookie || '').split(';').filter(part => part.trim().split('=', 1)[0] === FREE_DEVICE_COOKIE)
+  if (deviceCookies.length > 1) throw new Error('INVALID_DEVICE_COOKIE')
   const existing = verifyFreeDeviceCookieValue(
     getCookie(req, FREE_DEVICE_COOKIE)
   )
@@ -244,10 +235,14 @@ function getOrCreateFreeDevice(req, res) {
     }
   }
 
+  if (deviceCookies.length) {
+    throw new Error('INVALID_DEVICE_COOKIE')
+  }
+
   const deviceId = crypto.randomUUID()
   const value = createFreeDeviceCookieValue(deviceId)
   const forwardedProto = String(req.headers['x-forwarded-proto'] || '')
-  const secure = forwardedProto === 'https'
+  const secure = runtimeConfig.production || forwardedProto === 'https'
 
   const cookie = [
     `${FREE_DEVICE_COOKIE}=${encodeURIComponent(value)}`,
@@ -267,69 +262,15 @@ function getOrCreateFreeDevice(req, res) {
 }
 
 function loadFreeUsage() {
-  if (!fs.existsSync(FREE_USAGE_FILE)) {
-    return {}
-  }
-
-  try {
-    const data = JSON.parse(fs.readFileSync(FREE_USAGE_FILE, 'utf8'))
-
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      return {}
-    }
-
-    return data
-  } catch {
-    return {}
-  }
+  return accounting.load()
 }
 
 function saveFreeUsage(usage) {
-  const tempFile = `${FREE_USAGE_FILE}.tmp`
-
-  fs.writeFileSync(
-    tempFile,
-    JSON.stringify(usage),
-    { mode: 0o600 }
-  )
-
-  fs.chmodSync(tempFile, 0o600)
-  fs.renameSync(tempFile, FREE_USAGE_FILE)
+  accounting.save(usage)
 }
 
 function getFreeAllowance(deviceId, now = Date.now()) {
-  const usage = loadFreeUsage()
-  const record = usage[deviceId]
-
-  if (
-    !record ||
-    !Number.isFinite(record.windowStartedAt) ||
-    !Number.isFinite(record.usedMs) ||
-    now - record.windowStartedAt >= FREE_ALLOWANCE_WINDOW_MS
-  ) {
-    return {
-      usage,
-      record: {
-        windowStartedAt: now,
-        usedMs: 0,
-      },
-      remainingMs: FREE_DAILY_ALLOWANCE_MS,
-    }
-  }
-
-  const usedMs = Math.min(
-    FREE_DAILY_ALLOWANCE_MS,
-    Math.max(0, record.usedMs),
-  )
-
-  return {
-    usage,
-    record: {
-      windowStartedAt: record.windowStartedAt,
-      usedMs,
-    },
-    remainingMs: Math.max(0, FREE_DAILY_ALLOWANCE_MS - usedMs),
-  }
+  return freeAllowance(loadFreeUsage(), deviceId, now)
 }
 
 function saveFreeAllowance(deviceId, allowance) {
@@ -371,17 +312,24 @@ function freeNumber(start, used) {
 
 function spawnLogged(command, args, env, logFile) {
   const log = fs.openSync(logFile, 'a')
-  const child = spawn(command, args, {
-    env: { ...process.env, ...env },
-    stdio: ['ignore', log, log],
-    detached: false,
-  })
-  child.on('exit', () => fs.closeSync(log))
+  let child
+  try {
+    child = spawn(command, args, {
+      env: { ...childEnvironment(process.env, runtimeConfig.production), ...env },
+      stdio: ['ignore', log, log],
+      detached: false,
+    })
+  } catch (error) {
+    fs.closeSync(log)
+    throw error
+  }
+  child.on('error', error => console.error(`[Poxey Session] Failed to spawn ${command}: ${error.message}`))
+  child.once('close', () => fs.closeSync(log))
   return child
 }
 
 function isAlive(child) {
-  return child && child.exitCode === null && !child.killed
+  return processRunning(child)
 }
 
 function processDescendants(pid) {
@@ -510,11 +458,11 @@ function waitForPort(port, timeoutMs = 5000) {
 }
 
 function usedDisplays() {
-  return new Set([...sessions.values()].map(s => s.display))
+  return new Set([...sessions.values(), ...retiringSessions].map(s => s.display))
 }
 
 function usedPorts() {
-  return new Set([...sessions.values()].map(s => s.vncPort))
+  return new Set([...sessions.values(), ...retiringSessions].map(s => s.vncPort))
 }
 
 function isPortAvailable(port, host = HOST) {
@@ -534,10 +482,23 @@ function isPortAvailable(port, host = HOST) {
 }
 
 function findByToken(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value)) return null
   for (const session of sessions.values()) {
-    if (session.token === value) return session
+    if (session.token === value) {
+      if (!sessionUsable(session)) {
+        cleanupSession(session, 'expired token rejected')
+        return null
+      }
+      return session
+    }
   }
   return null
+}
+
+function authorizedSession(req, value) {
+  const session = findByToken(value)
+  if (runtimeConfig.production && session?.deviceId !== verifyFreeDeviceCookieValue(getCookie(req, FREE_DEVICE_COOKIE))) return null
+  return session
 }
 
 async function createSession(req, res) {
@@ -549,9 +510,13 @@ async function createSession(req, res) {
   }
 
   sessionCreationLock = true
+  let capacitySlot
+  let published = false
+  let rollbackComplete = true
 
   try {
-    if (sessions.size >= MAX_SESSIONS) {
+    capacitySlot = capacity.reserve()
+    if (!capacitySlot) {
       return {
         error: 'MAX_SESSIONS',
         message: `Maximum of ${MAX_SESSIONS} active sessions reached.`,
@@ -606,6 +571,13 @@ async function createSession(req, res) {
   saveFreeAllowance(deviceId, allowance)
   startingFreeDevices.add(deviceId)
 
+  const startup = startupResources({
+    killTree: killProcessTree,
+    isAlive,
+    removeSink: removeAudioSink,
+    removeDirectory: dir => fs.rmSync(dir, { recursive: true, force: true }),
+    wait: ms => new Promise(resolve => setTimeout(resolve, ms)),
+  })
   try {
     const display = freeNumber(DISPLAY_START, usedDisplays())
 
@@ -622,6 +594,7 @@ async function createSession(req, res) {
     const authToken = token()
 
     const dir = path.join(BASE_DIR, id)
+    startup.directory(dir)
     const profile = path.join(dir, 'profile')
     const logDir = path.join(dir, 'logs')
 
@@ -634,7 +607,7 @@ async function createSession(req, res) {
 
     const displayName = `:${display}`
 
-    const xvfb = spawnLogged(
+    const xvfb = startup.child(spawnLogged(
       'Xvfb',
       [
         displayName,
@@ -646,40 +619,33 @@ async function createSession(req, res) {
       ],
       {},
       path.join(logDir, 'xvfb.log'),
-    )
+    ))
 
     await new Promise(r => setTimeout(r, 1000))
 
     if (!isAlive(xvfb)) {
-      await cleanupStartupFailure(dir, [xvfb])
       return {
         error: 'XVFB_FAILED',
         message: 'Failed to start Xvfb.',
       }
     }
 
-    const runtimeDir =
-      process.env.XDG_RUNTIME_DIR || `/tmp/runtime-${process.getuid?.() ?? 1000}`
-
-    const pulseRuntimePath = path.join(runtimeDir, 'pulse')
-    fs.mkdirSync(pulseRuntimePath, { recursive: true })
+    const audioSink = createSessionSink(id, { run: spawnSync, env: pulseEnvironment(), own: sink => startup.sink(sink) })
 
     const chromeEnv = {
+      ...pulseEnvironment(),
       DISPLAY: displayName,
-      XDG_RUNTIME_DIR: runtimeDir,
-      PULSE_RUNTIME_PATH: pulseRuntimePath,
-      PULSE_SERVER: `unix:${pulseRuntimePath}/native`,
-      PULSE_SINK: 'poxey_output',
+      ...(audioSink.name ? { PULSE_SINK: audioSink.name } : {}),
     }
 
-    const chrome = spawnLogged(
+    const chrome = startup.child(spawnLogged(
       '/usr/bin/google-chrome',
       [
         '--disable-gpu',
         '--num-raster-threads=2',
         '--use-pulseaudio',
         '--disable-features=AudioServiceOutOfProcess',
-        '--no-sandbox',
+        ...chromeSandboxArgs(runtimeConfig),
         `--user-data-dir=${profile}`,
         '--no-first-run',
         '--no-default-browser-check',
@@ -688,13 +654,11 @@ async function createSession(req, res) {
       ],
       chromeEnv,
       path.join(logDir, 'chrome.log'),
-    )
+    ))
 
     await new Promise(r => setTimeout(r, 2000))
 
     if (!isAlive(chrome)) {
-      killProcessTree(chrome, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
       return {
         error: 'CHROME_FAILED',
         message: 'Failed to start Chrome.',
@@ -704,8 +668,6 @@ async function createSession(req, res) {
     const chromeWindowId = findChromeWindowId(displayName)
 
     if (!chromeWindowId) {
-      killProcessTree(chrome, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
       return {
         error: 'CHROME_WINDOW_NOT_FOUND',
         message: 'Chrome started, but its window could not be detected.',
@@ -732,22 +694,20 @@ async function createSession(req, res) {
         ],
         {
           env: {
-            ...process.env,
+            ...childEnvironment(process.env, runtimeConfig.production),
             DISPLAY: displayName,
           },
           encoding: 'utf8',
         }
       )
     } catch (error) {
-      killProcessTree(chrome, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
       return {
         error: 'CHROME_RESIZE_FAILED',
         message: error instanceof Error ? error.message : String(error),
       }
     }
 
-    const x11vnc = spawnLogged(
+    const x11vnc = startup.child(spawnLogged(
       'x11vnc',
       [
         '-display',
@@ -767,7 +727,7 @@ async function createSession(req, res) {
       ],
       {},
       path.join(logDir, 'x11vnc.log'),
-    )
+    ))
 
     await new Promise(r => setTimeout(r, 1000))
 
@@ -781,7 +741,6 @@ async function createSession(req, res) {
 
       console.error(`[Poxey Session] X11VNC_FAILED_LOG\n${x11vncLog}`)
 
-      await cleanupStartupFailure(dir, [chrome, xvfb, x11vnc])
       return {
         error: 'VNC_FAILED',
         message: 'Failed to start x11vnc.',
@@ -791,9 +750,6 @@ async function createSession(req, res) {
     const vncReady = await waitForTcpPort(vncPort)
 
     if (!vncReady) {
-      killProcessTree(chrome, 'SIGTERM')
-      killProcessTree(x11vnc, 'SIGTERM')
-      await cleanupStartupFailure(dir, [xvfb])
       return {
         error: 'VNC_NOT_READY',
         message: 'VNC server did not become ready.',
@@ -811,6 +767,10 @@ async function createSession(req, res) {
       x11vnc,
       chrome,
       chromeWindowId,
+      audioSink,
+      audioClients: new Set(),
+      audioCaptures: new Set(),
+      vncClients: new Set(),
       width: BASE_WIDTH,
       height: BASE_HEIGHT,
       deviceId,
@@ -822,6 +782,7 @@ async function createSession(req, res) {
       lastHeartbeat: now,
       usageStartedAt: now,
       lastUsageUpdateAt: now,
+      capacitySlot,
     }
 
     sessions.set(id, session)
@@ -844,7 +805,14 @@ async function createSession(req, res) {
     watchProcess('x11vnc', x11vnc)
     watchProcess('xvfb', xvfb)
 
-    writeTokenFile()
+    try {
+      writeTokenFile()
+    } catch (error) {
+      sessions.delete(id)
+      throw error
+    }
+    startup.commit()
+    published = true
 
     return {
       id,
@@ -856,58 +824,58 @@ async function createSession(req, res) {
       remainingMs: allowance.remainingMs,
     }
   } finally {
-    startingFreeDevices.delete(deviceId)
+    try { await startup.rollback() } catch (error) {
+      rollbackComplete = false
+      throw error
+    } finally { startingFreeDevices.delete(deviceId) }
   }
   } finally {
+    if (!published && rollbackComplete) capacitySlot?.release()
     sessionCreationLock = false
   }
 }
 
-async function cleanupStartupFailure(dir, children) {
-  for (const child of children) {
-    killProcessTree(child, 'SIGTERM')
-  }
-
-  await new Promise(resolve => setTimeout(resolve, 1500))
-
-  for (const child of children) {
-    if (isAlive(child)) {
-      killProcessTree(child, 'SIGKILL')
-    }
-  }
-
-  await new Promise(resolve => setTimeout(resolve, 250))
-
-  fs.rmSync(dir, { recursive: true, force: true })
-}
-
 function cleanupSession(session, reason = 'cleanup') {
-  if (!session || session.cleaningUp) return
+  if (!session || session.cleaningUp) return session?.cleanupPromise
 
   session.cleaningUp = true
+  retiringSessions.add(session)
   sessions.delete(session.id)
-  writeTokenFile()
-
-  chargeSessionUsage(session, Date.now())
+  let bookkeepingFailed = false
+  // An accounting/token-file error must not prevent owned OS-resource cleanup.
+  for (const action of [
+    ...[...(session.audioClients || []), ...(session.vncClients || [])].map(client => () => client.close()),
+    writeTokenFile,
+    () => chargeSessionUsage(session, Date.now()),
+  ]) {
+    try { action() } catch (error) {
+      bookkeepingFailed = true
+      console.error('[Poxey Session] Cleanup bookkeeping failed:', error.message)
+    }
+  }
 
   console.log(`[Poxey Session] Cleaning ${session.id}: ${reason}`)
 
-  for (const child of [session.chrome, session.x11vnc, session.xvfb]) {
-    if (isAlive(child)) {
-      child.kill('SIGTERM')
-    }
-  }
-
-  setTimeout(() => {
-    for (const child of [session.chrome, session.x11vnc, session.xvfb]) {
-      if (isAlive(child)) {
-        child.kill('SIGKILL')
-      }
-    }
-
-    fs.rmSync(session.dir, { recursive: true, force: true })
-  }, 1500)
-
+  session.cleanupPromise = teardownResources({
+    children: [session.chrome, session.x11vnc, session.xvfb, ...(session.audioCaptures || [])],
+    killTree: killProcessTree,
+    isAlive,
+    removeSink: () => {
+      const result = removeAudioSink(session.audioSink?.moduleId)
+      if (result && result.status !== 0) throw new Error('Session audio sink removal failed')
+    },
+    removeDirectory: () => fs.rmSync(session.dir, { recursive: true, force: true }),
+    wait: ms => new Promise(resolve => setTimeout(resolve, ms)),
+  }).then(() => {
+    if (bookkeepingFailed) throw new Error('Session bookkeeping did not complete')
+    retiringSessions.delete(session)
+    session.capacitySlot.release()
+  }).catch(error => {
+    // Fail closed: retain the capacity reservation if cleanup cannot be verified.
+    console.error(`[Poxey Session] Cleanup incomplete session=${session.id}:`, error.message)
+  }).finally(() => pendingCleanup.delete(session.cleanupPromise))
+  pendingCleanup.add(session.cleanupPromise)
+  return session.cleanupPromise
 }
 
 function parseBody(req) {
@@ -945,7 +913,7 @@ function parseBody(req) {
 
       try {
         settled = true
-        resolve(body ? JSON.parse(body) : {})
+        resolve(parseSessionBody(body))
       } catch {
         settled = true
         reject(new Error('INVALID_JSON'))
@@ -954,9 +922,19 @@ function parseBody(req) {
   })
 }
 
-const vncProxy = new WebSocketServer({ noServer: true })
+const wsOptions = { noServer: true, ...(runtimeConfig.production ? { maxPayload: 1024 * 1024 } : {}) }
+const audioProxy = new WebSocketServer(wsOptions)
+
+audioProxy.on('connection', (client, session) => {
+  startAudioCapture({ client, session, spawn, env: pulseEnvironment(),
+    log: event => console.log('[Poxey Audio]', JSON.stringify(event)),
+  })
+})
+
+const vncProxy = new WebSocketServer(wsOptions)
 
 vncProxy.on('connection', (client, session) => {
+  session.vncClients.add(client)
   const upstream = net.createConnection({
     host: '127.0.0.1',
     port: session.vncPort,
@@ -973,6 +951,7 @@ vncProxy.on('connection', (client, session) => {
   })
 
   const closeBoth = () => {
+    session.vncClients.delete(client)
     if (!upstream.destroyed) upstream.destroy()
     if (client.readyState === 1) client.close()
   }
@@ -984,11 +963,18 @@ vncProxy.on('connection', (client, session) => {
 })
 
 const server = http.createServer(async (req, res) => {
+  try { accounting.assertReady() } catch {
+    return json(res, 503, { ok: false, error: 'IDENTITY_STATE_BLOCKED' })
+  }
+  if (req.method !== 'GET' && !requestAllowed(req, runtimeConfig)) {
+    return json(res, 403, { error: 'ORIGIN_REJECTED' })
+  }
   if (req.method === 'GET' && req.url === '/health') {
     return json(res, 200, {
       ok: true,
       sessions: sessions.size,
       maxSessions: MAX_SESSIONS,
+      occupiedSlots: capacity.occupied,
     })
   }
 
@@ -1013,6 +999,9 @@ const server = http.createServer(async (req, res) => {
 
       return json(res, 201, result)
     } catch (error) {
+      if (error?.message === 'INVALID_DEVICE_COOKIE') {
+        return json(res, 401, { error: 'INVALID_DEVICE_COOKIE' })
+      }
       console.error(
         '[Poxey Session] CREATE_SESSION_EXCEPTION',
         error instanceof Error ? error.stack : String(error)
@@ -1020,7 +1009,7 @@ const server = http.createServer(async (req, res) => {
 
       return json(res, 500, {
         error: 'SESSION_CREATE_FAILED',
-        message: error instanceof Error ? error.message : String(error),
+        message: runtimeConfig.production ? 'Session could not be started.' : error instanceof Error ? error.message : String(error),
       })
     }
   }
@@ -1037,7 +1026,7 @@ const server = http.createServer(async (req, res) => {
       })
     }
 
-    const session = findByToken(body.token)
+    const session = authorizedSession(req, body.token)
 
     if (!session) {
       return json(res, 401, { error: 'INVALID_SESSION' })
@@ -1088,7 +1077,7 @@ if (req.method === 'POST' && req.url === '/session/heartbeat') {
       })
     }
 
-    const session = findByToken(body.token)
+    const session = authorizedSession(req, body.token)
 
     if (!session) {
       return json(res, 401, {
@@ -1138,7 +1127,7 @@ if (req.method === 'POST' && req.url === '/session/heartbeat') {
       })
     }
 
-    const session = findByToken(body.token)
+    const session = authorizedSession(req, body.token)
 
     if (!session) {
       return json(res, 404, {
@@ -1175,24 +1164,31 @@ setInterval(() => {
 
 server.on('upgrade', (req, socket, head) => {
   try {
+    accounting.assertReady()
     const requestUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`)
 
-    if (requestUrl.pathname !== '/websockify') {
+    if (requestUrl.pathname !== '/websockify' && requestUrl.pathname !== '/audio') {
       socket.destroy()
       return
     }
 
     const authToken = requestUrl.searchParams.get('token')
-    const session = findByToken(authToken || '')
+    const session = authorizedSession(req, authToken || '')
 
-    if (!session) {
+    if (!websocketAllowed(req, runtimeConfig, session, verifyFreeDeviceCookieValue(getCookie(req, FREE_DEVICE_COOKIE)), requestUrl.pathname)) {
       socket.destroy()
       return
     }
 
-    vncProxy.handleUpgrade(req, socket, head, client => {
-      vncProxy.emit('connection', client, session)
-    })
+    if (requestUrl.pathname === '/audio') {
+      audioProxy.handleUpgrade(req, socket, head, client => {
+        audioProxy.emit('connection', client, session)
+      })
+    } else {
+      vncProxy.handleUpgrade(req, socket, head, client => {
+        vncProxy.emit('connection', client, session)
+      })
+    }
   } catch {
     socket.destroy()
   }
@@ -1209,7 +1205,9 @@ function shutdown() {
   for (const session of sessions.values()) {
     cleanupSession(session, 'manager shutdown')
   }
-  server.close(() => process.exit(0))
+  server.close(() => {
+    Promise.all([...pendingCleanup]).then(() => process.exit(0))
+  })
 }
 
 process.on('SIGTERM', shutdown)

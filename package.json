@@ -4,13 +4,28 @@
   "type": "module",
   "scripts": {
     "dev": "./scripts/start-project.sh",
+    "start:production": "bash scripts/start-production.sh",
+    "test:security": "node --test scripts/security-policy.test.mjs scripts/deployment.test.mjs",
+    "test:reliability": "node --test scripts/startup-resources.test.mjs",
+    "test:capacity": "node --test scripts/session-capacity.test.mjs scripts/session-teardown.test.mjs",
+    "test:audio": "node --test scripts/session-audio.test.mjs scripts/audio-capture.test.mjs",
+    "test:accounting": "node --test scripts/accounting-state.test.mjs scripts/accounting-startup.test.mjs",
+    "test:isolation-plan": "node --test deploy/isolation/preflight.test.mjs deploy/isolation/worker-spec.test.mjs deploy/isolation/worker-inspection.test.mjs deploy/isolation/offline-runtime.test.mjs",
+    "check:isolation-host": "node deploy/isolation/preflight.mjs",
+    "test:load-harness": "node --test scripts/load-test/guard.test.mjs scripts/load-test/rfb.test.mjs scripts/load-test/runner.test.mjs",
+    "load:disposable-host": "node scripts/load-test/cli.mjs",
     "remote-browser": "./scripts/start-remote-browser.sh",
     "frontend:dev": "cd frontend && npm run dev",
     "frontend:build": "cd frontend && npm run build",
     "worker:dev": "cd worker && npm run dev",
     "worker:build": "cd worker && npm run build",
     "worker:deploy": "cd worker && npm run deploy",
-    "test": "cd frontend && npm test && cd ../worker && npm test"
+    "test:backend": "node --test scripts/*.test.mjs deploy/isolation/*.test.mjs scripts/load-test/*.test.mjs",
+    "test": "npm run test:backend && npm run test --workspace frontend -- --run && npm run test --workspace worker -- --run",
+    "build": "npm run frontend:build && npm run worker:build"
+  },
+  "dependencies": {
+    "ws": "8.21.0"
   },
   "workspaces": [
     "frontend",

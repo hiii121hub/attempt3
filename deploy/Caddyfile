@@ -1,0 +1,48 @@
+# Candidate for a dedicated Linux host; NOT deployed. Keep loopback binding until release approval.
+{
+	# Remote Chrome must not find a local reverse-proxy administration API.
+	admin off
+	auto_https disable_redirects
+}
+
+http://{$POXEY_HOSTNAME} {
+	bind {$POXEY_BIND:127.0.0.1}
+	redir https://{host}{uri} permanent
+}
+
+{$POXEY_HOSTNAME} {
+	bind {$POXEY_BIND:127.0.0.1}
+	root * /srv/poxey/frontend
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' wss://{$POXEY_HOSTNAME}; media-src 'self' blob: https:; frame-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+	# No request access log: WebSocket query strings contain bearer tokens.
+	# Do not add access logging without redacting token queries and Cookie/Authorization headers.
+	@privateHealth path /health /__poxey_session/health
+	respond @privateHealth 404
+	handle_path /__poxey_session/* {
+		request_body {
+			max_size 10KB
+		}
+		reverse_proxy 127.0.0.1:3997 {
+			header_up X-Forwarded-Proto https
+			header_up -Authorization
+		}
+	}
+	@streams path /websockify /audio
+	handle @streams {
+		reverse_proxy 127.0.0.1:3997 {
+			header_up X-Forwarded-Proto https
+			header_up -Authorization
+		}
+	}
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}

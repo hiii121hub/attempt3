@@ -1,236 +1,136 @@
-# Private Browser
+# Poxey X1
 
-A modern web browser application built with React and Cloudflare Workers, designed to browse websites through a secure proxy/gateway layer.
+Poxey X1 runs real Google Chrome on Linux and streams its display to a browser
+using VNC/noVNC. The React client sends keyboard, pointer and touch input back.
+Authenticated WebSockets carry VNC and per-session PulseAudio/FFmpeg audio.
+
+**Engineering preview, not approved for public multi-user deployment.**
+The approved integration brings the completed engineering and cleanup work to
+`main`. Historical engineering branches and the older audio PR remain preserved.
+Start with [the documentation index](deploy/INDEX.md).
 
 ## Architecture
 
-- **Frontend**: React + TypeScript + Vite (Cloudflare Pages)
-- **Backend**: Cloudflare Workers (Gateway/Proxy)
-- **Deployment**: Cloudflare (Pages + Workers)
+- `frontend/`: React/Vite UI, noVNC in `public/core/`, audio worklet.
+- `scripts/poxey-session-manager.mjs`: admission, Chrome/Xvfb/x11vnc lifecycle,
+  signed browser identities, accounting and authenticated VNC/audio.
+- Manager: loopback **3997**. Development frontend: **3999**.
+- `/__poxey_session/*` proxies HTTP; `/websockify` and `/audio` proxy
+  authenticated WebSockets to the manager.
+- `deploy/`: Caddy/systemd candidates, acceptance gates, offline Podman adapter.
+- `worker/`: retained Cloudflare HTTP-proxy prototype, **not** the Chrome backend.
 
-## Features
+Separate profiles/displays/sinks are not hostile-user security boundaries.
+Native sessions still share a Linux account, network and PulseAudio server.
+The container adapter is offline preparation, not integrated production isolation.
 
-- ✅ Multi-tab browsing
-- ✅ Back/Forward navigation
-- ✅ Address bar with URL and search support
-- ✅ Proxy gateway for secure browsing
-- ✅ SSRF protection
-- ✅ Cookie management
-- ✅ HTML/CSS URL rewriting
-- ✅ Form submission support
-- ✅ JavaScript compatibility layer
+## Install and verify without starting a service
 
-## Project Structure
+Use a new checkout; never overwrite existing changes, lockfiles, backups or state.
+Recent Node.js/npm with workspaces are required; exact tested versions are in
+[the cleanup report](deploy/CLEANUP-REPORT.md).
 
-```
-.
-├── frontend/          # React frontend (Cloudflare Pages)
-│   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── styles/        # CSS styling
-│   │   ├── utils/         # Browser utilities
-│   │   └── types.ts       # TypeScript types
-│   ├── index.html
-│   ├── vite.config.ts
-│   └── tsconfig.json
-├── worker/            # Cloudflare Worker (Gateway)
-│   ├── src/
-│   │   ├── __tests__/     # Test suite
-│   │   ├── index.ts       # Main handler
-│   │   ├── security.ts    # SSRF protection
-│   │   ├── proxy-url.ts   # URL encoding
-│   │   ├── rewrite.ts     # HTML/CSS rewriting
-│   │   └── cookies.ts     # Cookie management
-│   ├── wrangler.toml
-│   └── tsconfig.json
-└── package.json       # Workspace root
-```
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- npm or yarn
-- Wrangler CLI (for Cloudflare Workers)
-
-### Local Development
-
-1. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-2. **Set up environment variables**:
-   ```bash
-   # Frontend will use the local worker URL
-   # Already configured in frontend/.env.local
-   ```
-
-3. **Start the Worker** (Terminal 1):
-   ```bash
-   npm run worker:dev
-   ```
-   This starts the gateway at `http://localhost:8787`
-
-4. **Start the Frontend** (Terminal 2):
-   ```bash
-   npm run frontend:dev
-   ```
-   This starts the React app at `http://localhost:3000`
-
-5. **Open in browser**:
-   Visit `http://localhost:3000`
-
-### Running Tests
-
-```bash
-# Run all tests
+```sh
+git clone --branch main https://github.com/hiii121hub/attempt3.git
+cd attempt3
+npm ci
 npm test
-
-# Run specific test suites
-npm run -w worker test
-npm run -w frontend test
+npm run build
+npm audit --omit=dev
 ```
 
-### Building for Production
+These commands use the cleaned setup after the approved PR merges into main.
+Until then, check out the PR's cleanup branch to test it.
+`npm test` runs all offline backend, frontend and worker suites once and exits.
+Workspace test commands alone retain watch mode. Tests use synthetic state,
+never real-user records. Builds do not start Chrome or deploy anything.
+Worker build validates TypeScript; Wrangler bundles `src/index.ts` directly.
 
-```bash
-# Build both frontend and worker
-npm run frontend:build
-npm run worker:build
+macOS supports offline tests/builds; the Chrome backend requires Linux.
+Do not use a Mac as a public host.
+
+## Linux dependencies
+
+Use Linux x86-64, non-root execution, Google Chrome at
+`/usr/bin/google-chrome`, Node.js/npm, Bash, Xvfb, x11vnc, xdotool,
+PulseAudio (`pulseaudio`, `pactl`), FFmpeg, util-linux (`unshare`),
+curl, fonts and CA certificates. Distribution package names include `xvfb`,
+`x11vnc`, `xdotool`, `pulseaudio`, `pulseaudio-utils`, and `ffmpeg`.
+Install Chrome from its official signed package, not an unreviewed shell installer.
+
+Production additionally needs qualified rootless Podman, delegated cgroup-v2,
+subordinate UID/GID ranges, sandbox-compatible user namespaces, HTTPS/WSS and
+persistent private storage. See [server requirements](deploy/SERVER-ACCEPTANCE.md).
+Hardware budgets there are planning inputs, not measured five-user benchmarks.
+
+## Accounting state must be ready before startup
+
+**Never generate a new key, fabricate an empty ledger, clear cookies for time,
+or bypass an identity-state error.** Missing/damaged/blocked state refuses startup
+before services or admission. A fresh checkout does not authorize resetting usage.
+
+Read [identity recovery/persistence](deploy/IDENTITY-RECOVERY.md).
+The original Codespace recovery was blocked at the latest checkpoint; this
+cleanup does not activate it. New installations need reviewed operator
+provisioning: no automatic empty-state bootstrap exists.
+
+The original Codespace uses `/workspaces/.poxey-state/attempt3`; other checkouts
+default to sibling `.poxey-state/<checkout-name>`. `POXEY_STATE_DIR` can select
+reviewed persistent storage outside Git and temporary directories.
+Directory: 0700; private files: 0600. Protect ledger, key and manifest together.
+Never commit or publicly upload them.
+
+Only on an authorized private Linux host with verified ready state:
+
+```sh
+cd /workspaces/attempt3
+npm run dev
 ```
 
-## Deployment
+Use the actual checkout path on other hosts. Open private forwarded port 3999.
+Keep manager, VNC and audio ports private. Vite binds all interfaces for private
+forwarding; never expose it publicly. Stop the owning foreground process,
+not unrelated Chrome sessions or broad process patterns.
 
-### Prerequisites
+## Existing behavior and limits
 
-- Cloudflare account
-- Configured `wrangler.toml` with your account
-- Cloudflare Pages project set up
+Allowance: **25 minutes per signed browser identity per 24-hour window**,
+not an absolute per-person quota. Cookie deletion/new browsers can create
+distinct identities: [threat model](deploy/ALLOWANCE-THREAT-MODEL.md).
+Refresh ends the session, returns home and retains usage; no automatic reconnect.
+Termination/expiry removes temporary profiles, owned processes and session sinks,
+not persistent accounting.
 
-### Deploy Worker
+`POXEY_MAX_SESSIONS` controls admission; production defaults to one supervised
+tester. Five is configurable, **not verified active-user capacity**.
+See [capacity preparation](deploy/CAPACITY-PREPARATION.md). Historical three
+viewers/five Chrome creations do not establish five sustained active users.
 
-```bash
-npm run worker:deploy
-```
+## Production and unfinished work
 
-Production URL: `https://private-browser-gateway.private-browser.workers.dev`
+Build static assets; do not serve production through Vite.
+Review [Linux/Caddy/systemd deployment](deploy/README.md).
+Public release remains blocked by real production isolation, suitable hosting,
+five sustained independent viewers with browsing/video/audible audio,
+newest Safari/mobile/Chromebook tests and final security acceptance.
+The [disposable load harness](deploy/LOAD-TEST.md) is not human acceptance.
 
-### Deploy Frontend
+No permanent $0/no-card backend is verified. Cloudflare Pages cannot provide
+the Chrome backend. Development-tool advisories remain; never expose
+Vite/Vitest UI. The owner approved merging this work into main, not deployment.
 
-The frontend should be deployed via Cloudflare Pages. Configure your Pages project to:
-- Build command: `npm run frontend:build`
-- Build directory: `frontend/dist`
-- Environment variable: `VITE_GATEWAY_URL=https://private-browser-gateway.private-browser.workers.dev`
+## Help, contributions and licensing
 
-Production URL: `https://private-browser.pages.dev`
+- [Troubleshooting](deploy/TROUBLESHOOTING.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 
-## Architecture Details
-
-### Proxy URL Format
-
-Destinations are encoded as:
-```
-https://gateway.workers.dev/p/<base64url-encoded-url>
-```
-
-Example:
-- Destination: `https://example.com/page`
-- Proxy URL: `https://gateway.workers.dev/p/aHR0cHM6Ly9leGFtcGxlLmNvbS9wYWdl`
-
-### Security Features
-
-- **SSRF Protection**: Blocks private IP ranges, metadata endpoints, and internal services
-- **Cookie Isolation**: Cookies from one site don't leak to another
-- **URL Validation**: All URLs validated before fetching
-- **Redirect Validation**: Redirect targets checked for SSRF
-
-### Resource Handling
-
-- **HTML**: URLs rewritten, navigation bridge injected
-- **CSS**: URL() and @import rewritten
-- **JavaScript**: Passed through (no modification to preserve compatibility)
-- **Binary**: Passed through unchanged
-
-## Supported Browsers
-
-- Chrome/Edge 90+
-- Firefox 88+
-- Safari 14+
-- Mobile browsers
-
-## Limitations
-
-- WebSocket not supported
-- Some advanced JavaScript features may not work correctly
-- Very large file downloads limited by Worker timeout
-- Challenge pages (CAPTCHA, etc.) must be solved manually
-
-## Testing
-
-### Local Testing
-
-1. Start both frontend and worker as described above
-2. Use the browser interface to navigate
-3. Test sites:
-   - example.com
-   - bing.com
-   - google.com
-   - youtube.com
-   - chatgpt.com
-   - gemini.google.com
-
-### Production Testing
-
-After deployment, test against live URLs:
-```
-https://private-browser.pages.dev
-```
-
-## Troubleshooting
-
-### Blank Page in Iframe
-
-1. Check browser console for errors
-2. Verify gateway URL in frontend env vars
-3. Inspect iframe src attribute
-4. Check Worker logs
-
-### Cookies Not Working
-
-1. Verify destination domain in cookie store
-2. Check path and domain matching
-3. Ensure secure flag compatible with protocol
-
-### URLs Not Rewriting
-
-1. Check content type is HTML/CSS
-2. Verify proxy URL encoding
-3. Review Worker response headers
-
-## Development Notes
-
-### Key Files
-
-- `frontend/src/App.tsx` - Main app component
-- `frontend/src/components/ProxyView.tsx` - Iframe handler
-- `worker/src/index.ts` - Gateway request handler
-- `worker/src/security.ts` - SSRF validation
-- `worker/src/rewrite.ts` - URL rewriting logic
-
-### TypeScript Strict Mode
-
-The project uses strict TypeScript checking. Ensure types are properly defined.
-
-### Environment Variables
-
-- `VITE_GATEWAY_URL` - Gateway URL (default: http://localhost:8787)
-
-## License
-
-MIT
-
-## Security Disclaimer
-
-This project is a educational tool for understanding web proxy architecture. Use responsibly and respect the terms of service of websites you visit through this proxy.
+Poxey code owned by hiii121hub is licensed under [MIT](LICENSE),
+Copyright (c) 2026 hiii121hub. This grant does not relicense third-party code,
+MPL-covered modifications, logos, images or trademarks. The owner confirmed
+ownership of their original contributions across the contributing accounts.
+See [license scope and provenance review](deploy/LICENSE-REVIEW.md).
+The owner also confirms creating both bundled images; images and branding remain
+outside the MIT code grant. Third-party terms remain separate. This provenance
+review is not a blanket legal clearance for unrestricted redistribution.

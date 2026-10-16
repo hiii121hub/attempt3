@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import './App.css';
+import { requestSession } from './sessionLaunch';
 import VNCViewer from './components/VNCViewer';
 import PoxeyAudio from './PoxeyAudio';
 import { endPoxeySession, startPoxeyHeartbeat, stopPoxeyHeartbeat } from './sessionHeartbeat';
@@ -24,9 +25,18 @@ export function App() {
   const vncRef = useRef<any>(null);
   const [screenSize, setScreenSize] = useState(100);
   const [launching, setLaunching] = useState(false);
+  const launchController = useRef<AbortController | null>(null);
+  useEffect(() => () => {
+    launchController.current?.abort();
+    launchController.current = null;
+  }, []);
   const [endingSession, setEndingSession] = useState(false);
   const [error, setError] = useState('');
   const [sessionRemainingMs, setSessionRemainingMs] = useState(0);
+
+  const handleAudioEnabledChange = useCallback((enabled: boolean) => {
+    setAudioMuted(!enabled);
+  }, []);
 
   useEffect(() => {
     if (!sessionActive || !sessionToken) return;
@@ -107,20 +117,17 @@ export function App() {
   }
 
   const handleLaunch = async () => {
-    if (!agreed || launching) return;
+    if (!agreed || launching || launchController.current) return;
+
+    const controller = new AbortController();
+    launchController.current = controller;
 
     setLaunching(true);
     setError('');
 
     try {
-      const response = await fetch(SESSION_API, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      const data = await response.json().catch(() => ({}));
+      const { response, data } = await requestSession(SESSION_API, controller.signal);
+      if (controller.signal.aborted) return;
 
       if (!response.ok) {
         if (data?.error === 'ALLOWANCE_EXHAUSTED') {
@@ -148,6 +155,7 @@ export function App() {
       setSessionToken(data.token);
       setSessionActive(true);
     } catch (err) {
+      if (controller.signal.aborted) return;
       console.error(err);
 
       setError(
@@ -156,7 +164,10 @@ export function App() {
           : 'Could not start the remote browser. Please try again.'
       );
     } finally {
-      setLaunching(false);
+      if (launchController.current === controller) {
+        launchController.current = null;
+        if (!controller.signal.aborted) setLaunching(false);
+      }
     }
   };
 
@@ -196,7 +207,7 @@ export function App() {
             <PoxeyAudio
               audioToken={sessionToken}
               enabled={!audioMuted}
-              onEnabledChange={(enabled) => setAudioMuted(!enabled)}
+              onEnabledChange={handleAudioEnabledChange}
             />
           </div>
         </div>

@@ -14,6 +14,7 @@ describe('Proxy destination header security', () => {
   });
 
   it('does not forward incoming cookies or authentication credentials', async () => {
+    const debugLog = vi.spyOn(console, 'log').mockImplementation(() => {});
     const outgoingFetch = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(
@@ -37,6 +38,7 @@ describe('Proxy destination header security', () => {
     const response = await worker.fetch(request);
 
     expect(response.status).toBe(200);
+    expect(debugLog).not.toHaveBeenCalled();
     expect(outgoingFetch).toHaveBeenCalledOnce();
 
     const outgoingHeaders = new Headers(

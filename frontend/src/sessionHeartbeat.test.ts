@@ -26,7 +26,48 @@ describe('sessionHeartbeat', () => {
   })
 
   afterEach(() => {
+    for (const token of ['token-failed', 'token-recovery', 'token-a', 'token-b', 'token-refresh']) {
+      stopPoxeyHeartbeat(token)
+    }
     vi.unstubAllGlobals()
+  })
+
+  it('ends the active session on pagehide using the existing same-origin beacon', async () => {
+    const sendBeacon = vi.fn().mockReturnValue(true)
+    vi.stubGlobal('navigator', { sendBeacon })
+    startPoxeyHeartbeat('token-refresh')
+
+    window.dispatchEvent(new Event('pagehide'))
+
+    expect(sendBeacon).toHaveBeenCalledTimes(1)
+    const [url, body] = sendBeacon.mock.calls[0]
+    expect(url).toBe('/__poxey_session/session/end')
+    expect(body).toBeInstanceOf(Blob)
+    expect(body.type).toBe('application/json')
+    const contents = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsText(body)
+    })
+    expect(JSON.parse(contents)).toEqual({ token: 'token-refresh' })
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/session/create'), expect.anything(),
+    )
+  })
+
+  it('removes stopped-session pagehide handlers without ending another active session', () => {
+    const sendBeacon = vi.fn().mockReturnValue(true)
+    vi.stubGlobal('navigator', { sendBeacon })
+    startPoxeyHeartbeat('token-a')
+    startPoxeyHeartbeat('token-b')
+    stopPoxeyHeartbeat('token-a')
+
+    window.dispatchEvent(new Event('pagehide'))
+    expect(sendBeacon).toHaveBeenCalledTimes(1)
+    stopPoxeyHeartbeat('token-b')
+    window.dispatchEvent(new Event('pagehide'))
+    expect(sendBeacon).toHaveBeenCalledTimes(1)
   })
 
   it('does not automatically end the session when a heartbeat request fails', async () => {

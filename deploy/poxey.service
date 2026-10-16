@@ -1,0 +1,46 @@
+[Unit]
+Description=Poxey session manager (production candidate)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=poxey
+Group=poxey
+WorkingDirectory=/opt/poxey
+Environment=NODE_ENV=production
+Environment=HOME=/var/lib/poxey
+Environment=XDG_RUNTIME_DIR=/run/poxey
+EnvironmentFile=/etc/poxey/poxey.env
+RuntimeDirectory=poxey
+RuntimeDirectoryMode=0700
+StateDirectory=poxey
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/bin/bash /opt/poxey/scripts/start-production.sh
+ExecStartPost=/usr/bin/curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:3997/health
+Restart=on-failure
+RestartSec=5
+# Ensure Chrome descendants and PulseAudio also stop, even if the manager crashes.
+KillMode=control-group
+TimeoutStopSec=20
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# Do not restrict user namespaces or executable memory: Chrome requires them.
+# Apply CPUQuota/MemoryMax/TasksMax only after measuring the target host.
+
+[Install]
+WantedBy=multi-user.target
