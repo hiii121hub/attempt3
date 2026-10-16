@@ -84,6 +84,9 @@ missing state, without exposing any user record or key:
 node scripts/accounting-recovery.mjs status /workspaces/.poxey-state/attempt3
 ```
 
+From the intended checkout, `npm run accounting:status` automatically selects
+the same configured state directory as normal startup; it is also read-only.
+
 Status returns exit 0 only for intact ready accounting, exit 2 for blocked/invalid
 accounting, and exit 1 for an inspection/command failure. It never creates files,
 starts services or generates keys. `ELIGIBLE_FOR_IDLE_HOST_RECHECK` is **not**

@@ -4,6 +4,7 @@ import path from 'node:path'
 import net from 'node:net'
 import { spawnSync } from 'node:child_process'
 import { prepareRecovery, activateRecovery, validateLedger, recoveryStatus, reobserveRecovery } from './accounting-state.mjs'
+import { readRuntimeConfig } from './security-policy.mjs'
 
 async function idleHost() {
   if (process.platform !== 'linux') throw new Error('Linux host inspection required')
@@ -32,10 +33,10 @@ async function idleHost() {
 
 try {
   const [operation, dir, source] = process.argv.slice(2)
-  if (operation === 'status' && dir && !source) {
+  if (operation === 'status' && !source) {
     const bootId = process.platform === 'linux'
       ? fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim() : undefined
-    const result = recoveryStatus(path.resolve(dir), { bootId })
+    const result = recoveryStatus(path.resolve(dir || readRuntimeConfig().stateDir), { bootId })
     console.log(JSON.stringify(result))
     process.exitCode = result.admissionReady ? 0 : 2
   } else {

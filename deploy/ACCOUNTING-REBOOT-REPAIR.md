@@ -54,11 +54,13 @@ authorized or proven safe. Tests use isolated synthetic state, never real ledger
 
 ## Offline verification
 
-Mac: 341 tests passed (272 backend, 28 frontend, 41 worker), zero failed/skipped;
-both builds and syntax/whitespace checks passed. The 15 new recovery tests cover
+Mac final: 342 tests passed (273 backend, 28 frontend, 41 worker), zero failed/skipped;
+both builds and syntax/whitespace checks passed. The 16 new recovery tests cover
 redacted read-only status, exact source preservation, fresh deadline, permissions,
 early activation refusal, clock jumps, further reboot, ambiguous files, key/ready
 source rejection and invalid/overlapping/occupied destinations.
+The convenient read-only `npm run accounting:status` selects the same state
+configuration as startup, so no placeholder path or HTML-like syntax is required.
 
 The first focused run had three sandbox uptime-access failures. Diagnostics were
 changed to query uptime only when needed inside error handling; all 51 focused

@@ -92,3 +92,13 @@ test('status CLI refuses missing state without host mutation or secret output', 
   assert.equal(JSON.parse(result.stdout).code, 'STATE_MISSING_OR_INVALID')
   assert.equal(fs.existsSync(destination), false)
 })
+test('status defaults to configured state without initializing it', () => {
+  const destination = dir()
+  const result = spawnSync(process.execPath, ['scripts/accounting-recovery.mjs', 'status'], {
+    cwd: project, env: { ...process.env, NODE_ENV: 'development', POXEY_STATE_DIR: destination },
+    encoding: 'utf8', timeout: 5000,
+  })
+  assert.equal(result.status, 2)
+  assert.equal(JSON.parse(result.stdout).code, 'STATE_MISSING_OR_INVALID')
+  assert.equal(fs.existsSync(destination), false)
+})

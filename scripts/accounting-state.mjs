@@ -8,7 +8,7 @@ export const WINDOW_MS = 24 * 60 * 60 * 1000
 export const names = { ledger: 'poxey-free-usage.json', key: 'poxey-free-cookie.secret', manifest: 'identity-state.json' }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const digest = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
-const fail = () => { throw new Error('IDENTITY_STATE_BLOCKED: preserve state; run node scripts/accounting-recovery.mjs status <configured-state-directory>, then follow deploy/IDENTITY-RECOVERY.md. No allowances were initialized.') }
+const fail = () => { throw new Error('IDENTITY_STATE_BLOCKED: preserve state; run npm run accounting:status, then follow deploy/IDENTITY-RECOVERY.md. No allowances were initialized.') }
 
 export function validateStatePath(dir) {
   const project = path.resolve(new URL('..', import.meta.url).pathname)
