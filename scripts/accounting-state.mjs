@@ -203,6 +203,37 @@ export function openAccountingState(dir, { now = () => Date.now(), checkpoint = 
   }
 }
 
+// Explicit owner-approved reset for an UNUSED development deployment only.
+// Never called by startup or recovery; deliberately invalidates old allowances.
+export function resetUnusedDevelopmentState(dir, { confirmation, production = process.env.NODE_ENV === 'production',
+  quiescent = false, bootId, now = Date.now(), checkpoint = () => {} } = {}) {
+  if (production || confirmation !== 'RESET-UNUSED-DEVELOPMENT-ALLOWANCES' || !quiescent ||
+      !bootId || !Number.isSafeInteger(now) || now < 0 || process.env.POXEY_FREE_COOKIE_SECRET) fail()
+  validateStatePath(dir)
+  const parent = path.dirname(dir)
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 })
+  directory(parent)
+  const exists = fs.existsSync(dir)
+  if (exists) directory(dir)
+  const stage = fs.mkdtempSync(path.join(parent, '.owner-reset-'))
+  fs.chmodSync(stage, 0o700)
+  const key = crypto.randomBytes(32).toString('base64url'), ledger = Buffer.from('{}')
+  writeExclusive(path.join(stage, names.ledger), ledger)
+  writeExclusive(path.join(stage, names.key), key)
+  writeManifest(stage, { version: 1, phase: 'ready', observedAt: now,
+    observedUptimeMs: 0, bootId, notBefore: now + WINDOW_MS, activatedAt: now,
+    initialization: 'owner-approved-unused-development-reset',
+    keySha256: digest(key), ledgerSha256: digest(ledger) })
+  openAccountingState(stage, { now: () => now }).assertReady()
+  checkpoint('before-backup')
+  const backup = exists ? `${dir}.owner-backup-${crypto.randomUUID()}` : null
+  if (backup) { fs.renameSync(dir, backup); syncDirectory(parent) }
+  checkpoint('after-backup')
+  fs.renameSync(stage, dir)
+  syncDirectory(parent)
+  return { phase: 'ready', backup, allowancesReset: true, oldCookiesInvalidated: true }
+}
+
 export function freeAllowance(usage, deviceId, now = Date.now()) {
   const record = usage[deviceId]
   if (!record || now - record.windowStartedAt >= WINDOW_MS) {

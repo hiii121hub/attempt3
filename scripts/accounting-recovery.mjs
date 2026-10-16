@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import net from 'node:net'
 import { spawnSync } from 'node:child_process'
-import { prepareRecovery, activateRecovery, validateLedger, recoveryStatus, reobserveRecovery } from './accounting-state.mjs'
+import { prepareRecovery, activateRecovery, validateLedger, recoveryStatus, reobserveRecovery, resetUnusedDevelopmentState } from './accounting-state.mjs'
 import { readRuntimeConfig } from './security-policy.mjs'
 
 async function idleHost() {
@@ -41,7 +41,11 @@ try {
     process.exitCode = result.admissionReady ? 0 : 2
   } else {
     const bootId = await idleHost()
-    if (operation === 'reobserve' && dir && source) {
+    if (operation === 'owner-reset' && dir === 'RESET-UNUSED-DEVELOPMENT-ALLOWANCES' && !source) {
+      const config = readRuntimeConfig()
+      console.log(JSON.stringify(resetUnusedDevelopmentState(config.stateDir,
+        { confirmation: dir, production: config.production, bootId, quiescent: true })))
+    } else if (operation === 'reobserve' && dir && source) {
       const result = reobserveRecovery(path.resolve(source), path.resolve(dir), { bootId, quiescent: true })
       console.log(JSON.stringify({ ...result, notBeforeUTC: new Date(result.notBefore).toISOString() }))
     } else if (operation === 'prepare' && dir && source) {
