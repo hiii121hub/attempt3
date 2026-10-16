@@ -1,6 +1,6 @@
 # Contributing
 
-Base topic branches on `fix/phase2-reliability-isolation`, not older `main`.
+After the approved integration, base new topic branches on `main`.
 Inspect status/worktrees first. Preserve modified lockfiles, backups and recovery
 data. Never reset, force-push, merge or deploy without authorization.
 

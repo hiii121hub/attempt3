@@ -5,8 +5,8 @@ using VNC/noVNC. The React client sends keyboard, pointer and touch input back.
 Authenticated WebSockets carry VNC and per-session PulseAudio/FFmpeg audio.
 
 **Engineering preview, not approved for public multi-user deployment.**
-Latest development: `fix/phase2-reliability-isolation`. The older `main` and
-audio PR do not include all completed engineering improvements.
+The approved integration brings the completed engineering and cleanup work to
+`main`. Historical engineering branches and the older audio PR remain preserved.
 Start with [the documentation index](deploy/INDEX.md).
 
 ## Architecture
@@ -31,7 +31,7 @@ Recent Node.js/npm with workspaces are required; exact tested versions are in
 [the cleanup report](deploy/CLEANUP-REPORT.md).
 
 ```sh
-git clone --branch fix/phase2-reliability-isolation https://github.com/hiii121hub/attempt3.git
+git clone --branch main https://github.com/hiii121hub/attempt3.git
 cd attempt3
 npm ci
 npm test
@@ -39,8 +39,8 @@ npm run build
 npm audit --omit=dev
 ```
 
-After this cleanup PR is merged into the engineering branch, these commands use
-the cleaned setup. Until then, check out the PR's cleanup branch to test it.
+These commands use the cleaned setup after the approved PR merges into main.
+Until then, check out the PR's cleanup branch to test it.
 `npm test` runs all offline backend, frontend and worker suites once and exits.
 Workspace test commands alone retain watch mode. Tests use synthetic state,
 never real-user records. Builds do not start Chrome or deploy anything.
@@ -117,7 +117,7 @@ The [disposable load harness](deploy/LOAD-TEST.md) is not human acceptance.
 
 No permanent $0/no-card backend is verified. Cloudflare Pages cannot provide
 the Chrome backend. Development-tool advisories remain; never expose
-Vite/Vitest UI. No deployment or main merge is authorized by this cleanup.
+Vite/Vitest UI. The owner approved merging this work into main, not deployment.
 
 ## Help, contributions and licensing
 
